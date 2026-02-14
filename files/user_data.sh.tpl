@@ -25,7 +25,7 @@ retry_command() {
         if "$@"; then
             return 0
         fi
-        echo "Command failed, waiting ${delay}s before retry..."
+        echo "Command failed, waiting $${delay}s before retry..."
         sleep $delay
         attempt=$((attempt + 1))
         delay=$((delay * 2))
@@ -61,9 +61,9 @@ echo "[3/8] Installing Docker Compose..."
 DOCKER_COMPOSE_VERSION="v2.24.0"
 ARCH=$(dpkg --print-architecture)
 if [ "$ARCH" = "arm64" ]; then
-    retry_command curl -fsSL --retry 5 --retry-delay 2 -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-aarch64" -o /usr/local/bin/docker-compose
+    retry_command curl -fsSL --retry 5 --retry-delay 2 -L "https://github.com/docker/compose/releases/download/$${DOCKER_COMPOSE_VERSION}/docker-compose-linux-aarch64" -o /usr/local/bin/docker-compose
 else
-    retry_command curl -fsSL --retry 5 --retry-delay 2 -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose
+    retry_command curl -fsSL --retry 5 --retry-delay 2 -L "https://github.com/docker/compose/releases/download/$${DOCKER_COMPOSE_VERSION}/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose
 fi
 chmod +x /usr/local/bin/docker-compose
 ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose

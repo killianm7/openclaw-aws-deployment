@@ -140,8 +140,16 @@ run_static_analysis() {
     fi
   fi
   
-  # 1.2: Syntax validation
-  print_header "1.2: Terraform Syntax Validation"
+  # 1.2: Initialize and validate
+  print_header "1.2: Terraform Initialization & Validation"
+  print_info "Initializing Terraform (downloading modules/providers)..."
+  if terraform init -backend=false; then
+    print_success "Terraform initialized successfully"
+  else
+    print_error "Terraform init failed"
+    return 1
+  fi
+  
   if terraform validate; then
     print_success "Terraform configuration is valid"
   else
@@ -153,7 +161,7 @@ run_static_analysis() {
   print_header "1.3: Security Scan (tfsec)"
   if command_exists tfsec; then
     print_info "Running tfsec security scan..."
-    if tfsec . --config-file tests/.tfsec/config.yml --severity HIGH,CRITICAL 2>&1 | tee tests/tfsec-results.txt; then
+    if tfsec . --config-file tests/.tfsec/config.yml --minimum-severity HIGH 2>&1 | tee tests/tfsec-results.txt; then
       print_success "No HIGH or CRITICAL security issues found"
     else
       print_warning "Security issues found (see tests/tfsec-results.txt)"
@@ -265,18 +273,18 @@ run_terraform_plan() {
   print_success "AWS credentials valid (Account: $AWS_ACCOUNT)"
   print_info "IAM User/Role: $AWS_USER"
   
-  # Initialize Terraform
-  print_header "2.1: Terraform Initialization"
-  if [ ! -d ".terraform" ]; then
-    print_info "Initializing Terraform..."
-    if terraform init -backend=false; then
-      print_success "Terraform initialized (local mode)"
+  # Verify Terraform is initialized (already done in Phase 1)
+  print_header "2.1: Terraform Initialization Check"
+  if [ -d ".terraform" ]; then
+    print_success "Terraform already initialized (from Phase 1)"
+  else
+    print_info "Initializing Terraform with backend..."
+    if terraform init; then
+      print_success "Terraform initialized with backend"
     else
       print_error "Terraform init failed"
       return 1
     fi
-  else
-    print_success "Terraform already initialized"
   fi
   
   # Generate plan
@@ -333,8 +341,13 @@ run_terraform_plan() {
   # Cost estimation (rough)
   print_header "2.4: Cost Estimation"
   
-  INSTANCE_TYPE=$(grep -E "instance_type" terraform.tfvars 2>/dev/null | grep -oE '"[^"]+"' | tr -d '"' || echo "t4g.small")
-  VPC_ENDPOINTS=$(grep -E "enable_vpc_endpoints.*=.*true" terraform.tfvars 2>/dev/null | wc -l)
+  TFVARS_FILE="terraform.tfvars"
+  if [ ! -f "$TFVARS_FILE" ] && [ -f "tests/test.tfvars" ]; then
+    TFVARS_FILE="tests/test.tfvars"
+  fi
+  
+  INSTANCE_TYPE=$(grep -E "instance_type" "$TFVARS_FILE" 2>/dev/null | grep -oE '"[^"]+"' | tr -d '"' || echo "t4g.small")
+  VPC_ENDPOINTS=$(grep -E "enable_vpc_endpoints\s*=\s*true" "$TFVARS_FILE" 2>/dev/null | wc -l | tr -d ' ')
   
   print_info "Configuration detected:"
   print_info "  Instance Type: $INSTANCE_TYPE"

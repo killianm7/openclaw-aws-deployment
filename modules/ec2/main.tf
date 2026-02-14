@@ -17,7 +17,7 @@ resource "aws_instance" "openclaw" {
     volume_size           = var.root_volume_size
     volume_type           = "gp3"
     encrypted             = true
-    delete_on_termination = false  # Preserve data on instance termination
+    delete_on_termination = false # Preserve data on instance termination
   }
 
   user_data = base64encode(templatefile("${path.module}/../../files/user_data.sh.tpl", {

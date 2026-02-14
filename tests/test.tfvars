@@ -1,12 +1,12 @@
 # Test Variables for OpenClaw Terraform Testing
 # These are safe test values - no real secrets or production configs
 
-aws_region     = "us-west-2"
-environment    = "test"
-instance_type  = "t4g.small"
+aws_region    = "us-west-2"
+environment   = "test"
+instance_type = "t4g.small"
 
 # Model provider configuration
-model_provider   = "openrouter"
+model_provider     = "openrouter"
 openrouter_api_key = "sk-or-v1-test-key-not-real"
 
 # Optional features (disabled for cost savings in tests)
@@ -17,7 +17,7 @@ root_volume_size = 20
 
 # Tags for test resources
 tags = {
-  Test        = "true"
-  Temporary   = "true"
-  TestRun     = "validation"
+  Test      = "true"
+  Temporary = "true"
+  TestRun   = "validation"
 }

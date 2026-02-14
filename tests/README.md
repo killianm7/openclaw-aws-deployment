@@ -37,6 +37,7 @@ tests/
 ### Phase 1: Static Analysis (No AWS Required)
 
 - ✅ Terraform format validation (`terraform fmt`)
+- ✅ Terraform initialization (downloads modules/providers)
 - ✅ Syntax validation (`terraform validate`)
 - ✅ Security scanning (`tfsec`)
 - ✅ Docker Compose validation
@@ -47,7 +48,6 @@ tests/
 ### Phase 2: Terraform Plan (Requires AWS Credentials)
 
 - ✅ AWS credential validation
-- ✅ Terraform initialization
 - ✅ Plan generation (shows what would be created)
 - ✅ Resource counting
 - ✅ Cost estimation

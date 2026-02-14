@@ -33,7 +33,7 @@ resource "aws_security_group" "openclaw" {
     protocol    = "udp"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  
+
   # Add UDP 123
   egress {
     description = "NTP"

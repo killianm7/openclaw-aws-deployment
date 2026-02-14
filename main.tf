@@ -44,14 +44,14 @@ data "aws_ami" "ubuntu_2404" {
 # Locals
 locals {
   # Determine architecture based on instance type prefix
-  is_arm64         = can(regex("^t4g|^c6g|^c7g|^m6g|^m7g|^r6g|^r7g", var.instance_type))
+  is_arm64           = can(regex("^t4g|^c6g|^c7g|^m6g|^m7g|^r6g|^r7g", var.instance_type))
   architecture_label = local.is_arm64 ? "arm64" : "amd64"
-  
+
   # SSM parameter paths
-  ssm_prefix       = var.ssm_parameter_prefix
-  gateway_token    = "${local.ssm_prefix}/${var.environment}/gateway-token"
-  openrouter_key   = "${local.ssm_prefix}/${var.environment}/openrouter-api-key"
-  
+  ssm_prefix     = var.ssm_parameter_prefix
+  gateway_token  = "${local.ssm_prefix}/${var.environment}/gateway-token"
+  openrouter_key = "${local.ssm_prefix}/${var.environment}/openrouter-api-key"
+
   # Platform-specific configuration
   user_data_vars = {
     environment          = var.environment

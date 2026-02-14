@@ -40,7 +40,7 @@ run "valid_instance_type_c6g_large" {
 # Test model provider validation
 run "valid_model_provider_openrouter" {
   variables {
-    model_provider   = "openrouter"
+    model_provider     = "openrouter"
     openrouter_api_key = "test-api-key"
   }
 
@@ -156,7 +156,7 @@ run "vpc_endpoints_enabled" {
 # Test that verifies variable defaults work
 run "test_default_values" {
   # Don't override any variables - test defaults
-  
+
   assert {
     condition     = var.aws_region == "us-west-2"
     error_message = "Default AWS region should be us-west-2"
