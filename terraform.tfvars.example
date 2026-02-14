@@ -1,0 +1,28 @@
+# AWS Configuration
+aws_region = "us-west-2"
+environment = "dev"
+
+# Instance Configuration - Cheapest options:
+# t4g.small = $0.0168/hour (~$12.60/month) - ARM64/Graviton (RECOMMENDED - best value)
+# t3.small  = $0.0208/hour (~$15.60/month) - x86_64 (if you need x86 compatibility)
+instance_type = "t4g.small"
+
+# Model Provider Configuration
+model_provider = "openrouter"  # Options: "openrouter" (default, cheaper) or "bedrock"
+
+# If using OpenRouter (default), provide your API key:
+# Get your key from: https://openrouter.ai/keys
+openrouter_api_key = "sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxx"
+
+# If using Bedrock instead, uncomment and set:
+# bedrock_model_id = "amazon.nova-lite-v1:0"
+
+# VPC Endpoints - Disabled by default to save ~$22/month
+# Enable for production (private SSM/Bedrock access, compliance)
+enable_vpc_endpoints = false
+
+# Optional: Additional tags
+tags = {
+  Owner = "your-name"
+  Team  = "platform"
+}
