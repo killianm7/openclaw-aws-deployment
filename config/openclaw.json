@@ -1,0 +1,258 @@
+{
+  "$schema": "https://openclaw.ai/schemas/config.json",
+  "_comment": "OpenClaw Configuration for AWS EC2 Deployment",
+  
+  "gateway": {
+    "mode": "local",
+    "bind": "0.0.0.0",
+    "port": 18789,
+    
+    "auth": {
+      "mode": "token",
+      "token": "${OPENCLAW_GATEWAY_TOKEN}",
+      "tokenRotation": "90d"
+    },
+    
+    "logging": {
+      "level": "info",
+      "redactSensitive": "tools",
+      "file": "/app/logs/openclaw.log",
+      "redactPatterns": [
+        "\\b[A-Za-z0-9]{32,}\\b",
+        "sk-[a-zA-Z0-9]{20,}",
+        "\\b[0-9a-f]{64}\\b"
+      ]
+    },
+    
+    "discovery": {
+      "mdns": {
+        "mode": "off"
+      }
+    },
+    
+    "trustedProxies": [
+      "127.0.0.1",
+      "10.0.0.0/8",
+      "172.16.0.0/12"
+    ],
+    
+    "controlUi": {
+      "enabled": true,
+      "allowInsecureAuth": false
+    },
+    
+    "http": {
+      "endpoints": {
+        "responses": {
+          "files": {
+            "urlAllowlist": [],
+            "maxUrlParts": 5
+          },
+          "images": {
+            "urlAllowlist": [],
+            "maxUrlParts": 5
+          }
+        }
+      }
+    }
+  },
+  
+  "agents": {
+    "defaults": {
+      "name": "OpenClaw Assistant",
+      "description": "Your personal AI assistant running on AWS",
+      
+      "model": {
+        "provider": "ollama",
+        "model": "llama3.2:3b",
+        "temperature": 0.7,
+        "maxTokens": 4096
+      },
+      
+      "systemPrompt": {
+        "additional": [
+          "You are running on a secure AWS EC2 instance.",
+          "You can help with tasks, answer questions, and use tools when appropriate.",
+          "Always verify sensitive operations with the user before executing.",
+          "Never share API keys, tokens, or sensitive configuration details."
+        ]
+      },
+      
+      "sandbox": {
+        "mode": "all",
+        "scope": "agent",
+        "workspaceAccess": "ro",
+        "image": "openclaw/sandbox:latest"
+      },
+      
+      "tools": {
+        "allow": [
+          "read",
+          "write",
+          "edit",
+          "apply_patch",
+          "web_search",
+          "web_fetch",
+          "exec"
+        ],
+        "deny": []
+      }
+    },
+    
+    "list": [
+      {
+        "id": "main",
+        "name": "Main Assistant",
+        "description": "Primary OpenClaw agent for general tasks"
+      },
+      {
+        "id": "researcher",
+        "name": "Research Assistant",
+        "description": "Specialized agent for web research",
+        "tools": {
+          "allow": [
+            "web_search",
+            "web_fetch",
+            "read"
+          ],
+          "deny": [
+            "write",
+            "edit",
+            "apply_patch",
+            "exec"
+          ]
+        },
+        "sandbox": {
+          "mode": "all",
+          "workspaceAccess": "none"
+        }
+      },
+      {
+        "id": "coder",
+        "name": "Code Assistant",
+        "description": "Agent specialized for coding tasks",
+        "tools": {
+          "allow": [
+            "read",
+            "write",
+            "edit",
+            "apply_patch",
+            "exec",
+            "web_search"
+          ],
+          "deny": []
+        }
+      }
+    ]
+  },
+  
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "mode": "webhook",
+      "token": "${TELEGRAM_BOT_TOKEN}",
+      "webhook": {
+        "url": "${TELEGRAM_WEBHOOK_URL}",
+        "secret": "${WEBHOOK_SECRET}"
+      },
+      
+      "dmPolicy": "pairing",
+      
+      "allowFrom": [],
+      
+      "groups": {
+        "*": {
+          "requireMention": true,
+          "allowCommands": true
+        }
+      },
+      
+      "session": {
+        "dmScope": "per-channel-peer"
+      },
+      
+      "typingIndicators": true
+    },
+    
+    "whatsapp": {
+      "enabled": false,
+      "_comment": "Enable this when ready to add WhatsApp support",
+      "mode": "webhook",
+      "webhook": {
+        "url": "${WHATSAPP_WEBHOOK_URL}"
+      },
+      "dmPolicy": "pairing",
+      "groups": {
+        "*": {
+          "requireMention": true
+        }
+      }
+    }
+  },
+  
+  "tools": {
+    "profile": "standard",
+    
+    "elevated": {
+      "allowFrom": [],
+      "denyCommands": [
+        "rm -rf /",
+        "rm -rf /*",
+        "mkfs",
+        "dd if=/dev/zero",
+        "> /dev/sda"
+      ]
+    },
+    
+    "web": {
+      "search": {
+        "provider": "brave",
+        "apiKey": "${BRAVE_SEARCH_API_KEY}"
+      }
+    },
+    
+    "browser": {
+      "enabled": false,
+      "_comment": "Enable with caution - provides full browser automation"
+    },
+    
+    "exec": {
+      "host": "sandbox",
+      "timeout": 300,
+      "approvals": {
+        "default": "ask",
+        "allowlist": [
+          "git",
+          "ls",
+          "cat",
+          "echo",
+          "python3",
+          "pip",
+          "npm",
+          "node",
+          "curl",
+          "wget"
+        ]
+      }
+    }
+  },
+  
+  "session": {
+    "dmScope": "per-channel-peer",
+    "identityLinks": [],
+    "autoPrune": {
+      "enabled": true,
+      "maxAge": "30d",
+      "maxSessions": 100
+    }
+  },
+  
+  "hooks": {
+    "enabled": true,
+    "token": "${HOOKS_TOKEN}",
+    "allowedIps": [
+      "127.0.0.1",
+      "10.0.0.0/8"
+    ]
+  }
+}

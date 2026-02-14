@@ -1,0 +1,22 @@
+# OpenClaw AWS Deployment - Terraform Variables
+# Copy this file to terraform.tfvars and update the values
+
+# AWS Configuration
+aws_region = "us-east-1"
+environment = "production"
+
+# Security: YOUR IP ADDRESS ONLY
+# Get your IP: curl -s https://api.ipify.org
+# Format must be: "x.x.x.x/32"
+ssh_allowed_cidr = "YOUR.IP.HERE/32"
+
+# EC2 Configuration
+# Your EC2 key pair name (must exist in AWS)
+key_name = "openclaw-aws"
+
+# Instance type: t3.micro (free tier) or t3.small (better performance)
+instance_type = "t3.micro"
+
+# Optional: Pre-configure tokens (leave empty to auto-generate)
+# openclaw_gateway_token = ""
+# telegram_bot_token = ""

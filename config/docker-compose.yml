@@ -1,0 +1,134 @@
+# OpenClaw Docker Compose Configuration
+# This file is used by the EC2 bootstrap script
+# Manual usage: docker-compose -f docker-compose.yml up -d
+
+version: '3.8'
+
+services:
+  # Main OpenClaw Gateway
+  openclaw:
+    image: openclaw/openclaw:latest
+    container_name: openclaw
+    restart: unless-stopped
+    
+    # Security: Only bind to localhost, never expose publicly
+    ports:
+      - "127.0.0.1:18789:18789"
+    
+    volumes:
+      # Configuration (read-only for security)
+      - ./config/openclaw.json:/app/config/openclaw.json:ro
+      
+      # Data persistence
+      - ./data:/app/data
+      - openclaw-state:/root/.openclaw
+      
+      # Logs
+      - ./logs:/app/logs
+      
+      # Docker socket for sandboxed tool execution
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    
+    environment:
+      - OPENCLAW_CONFIG=/app/config/openclaw.json
+      - OPENCLAW_STATE_DIR=/root/.openclaw
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - NODE_ENV=production
+      
+      # Security: Enforce secure defaults
+      - OPENCLAW_DISABLE_BONJOUR=1
+    
+    networks:
+      - openclaw-internal
+    
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:18789/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service"
+    
+    # Resource limits for cost control
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # Ollama - Local LLM inference (optional, lightweight model)
+  # Uncomment this service if you want to use local models
+  # Otherwise, OpenClaw will use cloud APIs (Claude, OpenAI, etc.)
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: ollama
+  #   restart: unless-stopped
+  #   
+  #   # Ollama API port - internal only
+  #   ports:
+  #     - "127.0.0.1:11434:11434"
+  #   
+  #   volumes:
+  #     - ollama-data:/root/.ollama
+  #   
+  #   networks:
+  #     - openclaw-internal
+  #   
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: '2'
+  #         memory: 2G
+  #   
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 60s
+
+  # Webhook Forwarder (optional)
+  # Uncomment if you want to run the webhook forwarder as a container
+  # instead of using Lambda
+  # webhook-forwarder:
+  #   build:
+  #     context: ./lambda
+  #     dockerfile: Dockerfile.forwarder
+  #   container_name: webhook-forwarder
+  #   restart: unless-stopped
+  #   
+  #   environment:
+  #     - OPENCLAW_HOST=openclaw
+  #     - OPENCLAW_PORT=18789
+  #     - OPENCLAW_TOKEN=${OPENCLAW_TOKEN}
+  #   
+  #   networks:
+  #     - openclaw-internal
+  #   
+  #   depends_on:
+  #     - openclaw
+
+networks:
+  openclaw-internal:
+    driver: bridge
+    internal: false  # Set to true if you want complete network isolation
+    
+    # Security: Prevent external connections except through defined ports
+    driver_opts:
+      com.docker.network.bridge.name: openclaw0
+
+volumes:
+  openclaw-state:
+    driver: local
+  
+  ollama-data:
+    driver: local
