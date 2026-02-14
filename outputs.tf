@@ -50,7 +50,7 @@ output "verification_commands" {
 # Check instance status
 aws ec2 describe-instances --instance-ids ${module.ec2.instance_id} --region ${data.aws_region.current.name}
 
-# Get gateway token
+# Get gateway token (secure - retrieve from SSM)
 aws ssm get-parameter --name ${aws_ssm_parameter.gateway_token.name} --with-decryption --region ${data.aws_region.current.name} --query 'Parameter.Value' --output text
 
 # Connect via SSM
@@ -59,5 +59,8 @@ aws ssm start-session --target ${module.ec2.instance_id} --region ${data.aws_reg
 # Check logs on instance
 sudo cat /var/log/openclaw-setup.log
 sudo docker logs openclaw
+
+# IMPORTANT: Gateway token is stored ONLY in AWS SSM Parameter Store.
+# Never store tokens in plain text files or environment variables.
   EOT
 }

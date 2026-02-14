@@ -1,5 +1,3 @@
-data "aws_region" "current" {}
-
 # EC2 Instance
 resource "aws_instance" "openclaw" {
   ami                    = var.ami_id
@@ -8,11 +6,18 @@ resource "aws_instance" "openclaw" {
   vpc_security_group_ids = [var.security_group_id]
   iam_instance_profile   = var.iam_instance_profile
 
+  # Enforce IMDSv2 (Instance Metadata Service v2) for SSRF protection
+  metadata_options {
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 1
+    http_endpoint               = "enabled"
+  }
+
   root_block_device {
     volume_size           = var.root_volume_size
     volume_type           = "gp3"
     encrypted             = true
-    delete_on_termination = true
+    delete_on_termination = false  # Preserve data on instance termination
   }
 
   user_data = base64encode(templatefile("${path.module}/../../files/user_data.sh.tpl", {

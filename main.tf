@@ -114,6 +114,8 @@ module "iam" {
   environment          = var.environment
   model_provider       = var.model_provider
   ssm_parameter_prefix = local.ssm_prefix
+  aws_region           = data.aws_region.current.name
+  aws_account_id       = data.aws_caller_identity.current.account_id
 }
 
 module "network" {
@@ -132,6 +134,7 @@ module "vpc_endpoints" {
   subnet_ids        = data.aws_subnets.default.ids
   enable_bedrock    = var.model_provider == "bedrock"
   tags              = var.tags
+  aws_region        = data.aws_region.current.name
 }
 
 module "ec2" {

@@ -45,7 +45,7 @@ resource "aws_iam_role_policy" "ssm_parameters" {
           "ssm:GetParameter",
           "ssm:GetParameters"
         ]
-        Resource = "arn:aws:ssm:*:*:parameter${var.ssm_parameter_prefix}/*"
+        Resource = "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:parameter${var.ssm_parameter_prefix}/*"
       }
     ]
   })

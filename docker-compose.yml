@@ -2,7 +2,10 @@ version: '3.8'
 
 services:
   openclaw:
-    image: openclaw/openclaw:latest
+    # SECURITY: Pin to specific version instead of 'latest' to prevent supply chain attacks
+    # Get the latest stable version from: https://hub.docker.com/r/openclaw/openclaw/tags
+    # Format: image:repo@sha256:abc123... (preferred) or image:repo:v1.2.3
+    image: openclaw/openclaw:v0.1.0  # TODO: Replace with actual version and pin to SHA256
     container_name: openclaw
     restart: unless-stopped
     ports:

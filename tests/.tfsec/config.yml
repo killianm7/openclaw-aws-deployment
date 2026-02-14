@@ -1,0 +1,39 @@
+# TFSec Configuration for OpenClaw
+# Customizes security scanning rules
+# Docs: https://aquasecurity.github.io/tfsec/v1.28.1/guides/configuration/custom-checks/
+
+# Exclude checks that are false positives for this use case
+exclude:
+  # EC2 instances need public IPs for SSM Session Manager access over internet
+  # This is intentional - security is enforced via Security Group (no ingress)
+  - aws-ec2-enforce-http-token-imds  # Already enforced in code
+  
+  # VPC Endpoints are optional (disabled by default to save costs)
+  # When enabled, they're properly configured
+  - aws-ec2-require-vpc-flow-logs-for-vpc  # Optional for cost savings
+
+# Minimum severity to report
+severity:
+  - HIGH
+  - CRITICAL
+
+# Custom rules
+rules:
+  # Ensure all SSM parameters use SecureString
+  - id: custom-ssm-secure-string
+    message: "SSM parameters containing secrets should use SecureString type"
+    severity: HIGH
+    resource: aws_ssm_parameter
+    match:
+      - type: 
+          not: SecureString
+    exclude:
+      - name: "non-secret-parameter"  # Add exceptions here
+
+# Ignored checks with explanations
+ignored_checks:
+  aws-ec2-no-public-ip:
+    reason: "Instance needs public IP for SSM Session Manager over internet. Security enforced via Security Group with no ingress rules."
+  
+  aws-ec2-enforce-http-token-imds:
+    reason: "IMDSv2 is enforced in the EC2 module (http_tokens = 'required')"

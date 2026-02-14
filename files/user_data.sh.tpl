@@ -2,7 +2,7 @@
 # OpenClaw Setup Script for Ubuntu 24.04 LTS
 # Runs as root on first boot
 
-set -e
+set -euo pipefail
 
 exec > >(tee /var/log/openclaw-setup.log)
 exec 2>&1
@@ -14,6 +14,27 @@ echo "=========================================="
 export AWS_REGION="${region}"
 export DEBIAN_FRONTEND=noninteractive
 
+# Retry function for network operations
+retry_command() {
+    local max_attempts=5
+    local attempt=1
+    local delay=2
+    
+    while [ $attempt -le $max_attempts ]; do
+        echo "Attempt $attempt/$max_attempts: $*"
+        if "$@"; then
+            return 0
+        fi
+        echo "Command failed, waiting ${delay}s before retry..."
+        sleep $delay
+        attempt=$((attempt + 1))
+        delay=$((delay * 2))
+    done
+    
+    echo "Command failed after $max_attempts attempts"
+    return 1
+}
+
 # Update system
 echo "[1/8] Updating system packages..."
 apt-get update
@@ -23,7 +44,7 @@ apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release so
 # Install Docker
 echo "[2/8] Installing Docker..."
 install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+retry_command curl -fsSL --retry 5 --retry-delay 2 https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 chmod a+r /etc/apt/keyrings/docker.gpg
 
 echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
@@ -40,9 +61,9 @@ echo "[3/8] Installing Docker Compose..."
 DOCKER_COMPOSE_VERSION="v2.24.0"
 ARCH=$(dpkg --print-architecture)
 if [ "$ARCH" = "arm64" ]; then
-    curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-aarch64" -o /usr/local/bin/docker-compose
+    retry_command curl -fsSL --retry 5 --retry-delay 2 -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-aarch64" -o /usr/local/bin/docker-compose
 else
-    curl -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose
+    retry_command curl -fsSL --retry 5 --retry-delay 2 -L "https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose
 fi
 chmod +x /usr/local/bin/docker-compose
 ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
@@ -57,9 +78,9 @@ chown -R ubuntu:ubuntu /opt/openclaw
 echo "[4.5/8] Installing AWS CLI v2..."
 ARCH=$(uname -m)
 if [ "$ARCH" = "aarch64" ]; then
-    curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
+    retry_command curl -fsSL --retry 5 --retry-delay 2 "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
 else
-    curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+    retry_command curl -fsSL --retry 5 --retry-delay 2 "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 fi
 unzip -q awscliv2.zip
 ./aws/install --update
@@ -67,22 +88,43 @@ rm -rf aws awscliv2.zip
 
 # Fetch secrets from SSM Parameter Store
 echo "[5/8] Retrieving secrets from SSM..."
-GATEWAY_TOKEN=$(aws ssm get-parameter --name "${gateway_token_param}" --with-decryption --query 'Parameter.Value' --output text --region ${region} 2>/dev/null || echo "")
 
-%{ if model_provider == "openrouter" ~}
-OPENROUTER_API_KEY=$(aws ssm get-parameter --name "${openrouter_key_param}" --with-decryption --query 'Parameter.Value' --output text --region ${region} 2>/dev/null || echo "")
-%{ endif ~}
+# Retry logic for SSM parameter retrieval
+max_retries=5
+retry_count=0
+GATEWAY_TOKEN=""
 
-# Generate gateway token if not retrieved (fallback)
+while [ $retry_count -lt $max_retries ] && [ -z "$GATEWAY_TOKEN" ]; do
+    GATEWAY_TOKEN=$(aws ssm get-parameter --name "${gateway_token_param}" --with-decryption --query 'Parameter.Value' --output text --region ${region} 2>/dev/null)
+    if [ -z "$GATEWAY_TOKEN" ]; then
+        retry_count=$((retry_count + 1))
+        echo "Failed to retrieve gateway token, retry $retry_count/$max_retries..."
+        sleep 5
+    fi
+done
+
 if [ -z "$GATEWAY_TOKEN" ]; then
-    GATEWAY_TOKEN=$(openssl rand -hex 24)
-    echo "Warning: Could not retrieve gateway token from SSM, generated new one"
+    echo "ERROR: Failed to retrieve gateway token from SSM after $max_retries attempts"
+    exit 1
 fi
 
-# Save gateway token locally for reference
-echo "$GATEWAY_TOKEN" > /opt/openclaw/gateway_token.txt
-chown ubuntu:ubuntu /opt/openclaw/gateway_token.txt
-chmod 600 /opt/openclaw/gateway_token.txt
+%{ if model_provider == "openrouter" ~}
+retry_count=0
+OPENROUTER_API_KEY=""
+while [ $retry_count -lt $max_retries ] && [ -z "$OPENROUTER_API_KEY" ]; do
+    OPENROUTER_API_KEY=$(aws ssm get-parameter --name "${openrouter_key_param}" --with-decryption --query 'Parameter.Value' --output text --region ${region} 2>/dev/null)
+    if [ -z "$OPENROUTER_API_KEY" ]; then
+        retry_count=$((retry_count + 1))
+        echo "Failed to retrieve OpenRouter API key, retry $retry_count/$max_retries..."
+        sleep 5
+    fi
+done
+
+if [ -z "$OPENROUTER_API_KEY" ]; then
+    echo "ERROR: Failed to retrieve OpenRouter API key from SSM after $max_retries attempts"
+    exit 1
+fi
+%{ endif ~}
 
 # Create docker-compose.yml
 echo "[6/8] Creating Docker Compose configuration..."
@@ -91,7 +133,8 @@ version: '3.8'
 
 services:
   openclaw:
-    image: openclaw/openclaw:latest
+    # SECURITY: Pinned to specific version (update this when upgrading)
+    image: openclaw/openclaw:v0.1.0
     container_name: openclaw
     restart: unless-stopped
     ports:
@@ -154,15 +197,11 @@ sleep 15
 if docker ps | grep -q openclaw; then
     echo "✓ OpenClaw container is running"
     
-    # Get instance metadata
-    TOKEN_IMDS=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" 2>/dev/null || echo "")
-    if [ -n "$TOKEN_IMDS" ]; then
-        INSTANCE_ID=$(curl -H "X-aws-ec2-metadata-token: $TOKEN_IMDS" http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || echo "unknown")
-    else
-        INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || echo "unknown")
-    fi
+    # Get instance metadata using IMDSv2 only (enforced by metadata_options)
+    TOKEN_IMDS=$(curl -sf -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+    INSTANCE_ID=$(curl -sf -H "X-aws-ec2-metadata-token: $TOKEN_IMDS" http://169.254.169.254/latest/meta-data/instance-id)
     
-    # Create access instructions
+    # Create access instructions (token NOT stored here - retrieve from SSM only)
     cat > /opt/openclaw/ACCESS.txt << EOF
 ==========================================
 OpenClaw Access Information
@@ -175,12 +214,14 @@ To access the Web UI:
 1. Port forward from your local machine:
    aws ssm start-session --target $INSTANCE_ID --region ${region} --document-name AWS-StartPortForwardingSession --parameters '{"portNumber":["18789"],"localPortNumber":["18789"]}'
 
-2. Open in browser:
-   http://localhost:18789/?token=$GATEWAY_TOKEN
+2. Get gateway token from SSM (secure method):
+   aws ssm get-parameter --name "${gateway_token_param}" --with-decryption --region ${region} --query 'Parameter.Value' --output text
 
-Gateway token location (on instance):
-   /opt/openclaw/gateway_token.txt
+3. Open in browser:
+   http://localhost:18789/?token=<TOKEN_FROM_SSM>
 
+IMPORTANT: Gateway token is stored ONLY in AWS SSM Parameter Store.
+Do not store tokens in plain text files.
 ==========================================
 EOF
     
