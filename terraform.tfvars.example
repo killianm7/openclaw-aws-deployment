@@ -1,5 +1,5 @@
 # AWS Configuration
-aws_region = "us-west-2"
+aws_region  = "us-east-1"
 environment = "dev"
 
 # Instance Configuration - Cheapest options:
@@ -8,14 +8,15 @@ environment = "dev"
 instance_type = "t4g.small"
 
 # Model Provider Configuration
-model_provider = "openrouter"  # Options: "openrouter" (default, cheaper) or "bedrock"
+model_provider   = "bedrock"             # Options: "bedrock" (default) or "openrouter"
+bedrock_model_id = "amazon.nova-lite-v1:0"
 
-# If using OpenRouter (default), provide your API key:
-# Get your key from: https://openrouter.ai/keys
-openrouter_api_key = "sk-or-v1-xxxxxxxxxxxxxxxxxxxxxxxx"
-
-# If using Bedrock instead, uncomment and set:
-# bedrock_model_id = "amazon.nova-lite-v1:0"
+# Optional: OpenRouter (set key in SSM first, see Runbook.md)
+# model_provider           = "openrouter"
+# openrouter_ssm_parameter = "/openclaw/dev/openrouter-api-key"
+# Then run once:
+#   aws ssm put-parameter --name "/openclaw/dev/openrouter-api-key" \
+#     --type SecureString --value "sk-or-v1-..." --region us-east-1
 
 # VPC Endpoints - Disabled by default to save ~$22/month
 # Enable for production (private SSM/Bedrock access, compliance)

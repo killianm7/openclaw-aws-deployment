@@ -24,7 +24,6 @@ cd tests
 ```
 tests/
 ├── test-deployment.sh          # Main test runner
-├── test-docker-compose.sh      # Docker Compose validator
 ├── validation.tftest.hcl       # Terraform unit tests
 ├── test.tfvars                 # Test variables
 ├── .tfsec/
@@ -89,13 +88,6 @@ cd tests
 ```bash
 # In GitHub Actions, GitLab CI, etc.
 ./tests/test-deployment.sh --ci
-```
-
-### Docker Validation
-
-```bash
-# Test Docker Compose configuration
-./tests/test-docker-compose.sh
 ```
 
 ### Terraform Unit Tests

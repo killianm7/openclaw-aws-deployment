@@ -42,8 +42,11 @@ resource "aws_iam_role_policy" "ssm_parameters" {
       {
         Effect = "Allow"
         Action = [
+          "ssm:PutParameter",
           "ssm:GetParameter",
-          "ssm:GetParameters"
+          "ssm:GetParameters",
+          "ssm:AddTagsToResource",
+          "ssm:DescribeParameters"
         ]
         Resource = "arn:aws:ssm:${var.aws_region}:${var.aws_account_id}:parameter${var.ssm_parameter_prefix}/*"
       }
@@ -51,10 +54,8 @@ resource "aws_iam_role_policy" "ssm_parameters" {
   })
 }
 
-# Conditional Bedrock policy (only if using Bedrock)
+# Bedrock policy (always present -- Bedrock is default and fallback provider)
 resource "aws_iam_role_policy" "bedrock" {
-  count = var.model_provider == "bedrock" ? 1 : 0
-
   name = "bedrock-access"
   role = aws_iam_role.openclaw.id
 

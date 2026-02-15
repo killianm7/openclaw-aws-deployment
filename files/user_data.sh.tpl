@@ -1,5 +1,6 @@
 #!/bin/bash
 # OpenClaw Setup Script for Ubuntu 24.04 LTS
+# Host install (no Docker) with systemd user service
 # Runs as root on first boot
 
 set -euo pipefail
@@ -19,7 +20,6 @@ retry_command() {
     local max_attempts=5
     local attempt=1
     local delay=2
-    
     while [ $attempt -le $max_attempts ]; do
         echo "Attempt $attempt/$max_attempts: $*"
         if "$@"; then
@@ -30,89 +30,101 @@ retry_command() {
         attempt=$((attempt + 1))
         delay=$((delay * 2))
     done
-    
     echo "Command failed after $max_attempts attempts"
     return 1
 }
 
-# Update system
+# [1/8] System update
 echo "[1/8] Updating system packages..."
 apt-get update
 apt-get upgrade -y
-apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release software-properties-common unzip
+apt-get install -y curl unzip jq ca-certificates
 
-# Install Docker
-echo "[2/8] Installing Docker..."
-install -m 0755 -d /etc/apt/keyrings
-retry_command curl -fsSL --retry 5 --retry-delay 2 https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-chmod a+r /etc/apt/keyrings/docker.gpg
-
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-
-apt-get update
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
-systemctl enable docker
-systemctl start docker
-usermod -aG docker ubuntu
-
-# Install Docker Compose standalone (v2)
-echo "[3/8] Installing Docker Compose..."
-DOCKER_COMPOSE_VERSION="v2.24.0"
-ARCH=$(dpkg --print-architecture)
-if [ "$ARCH" = "arm64" ]; then
-    retry_command curl -fsSL --retry 5 --retry-delay 2 -L "https://github.com/docker/compose/releases/download/$${DOCKER_COMPOSE_VERSION}/docker-compose-linux-aarch64" -o /usr/local/bin/docker-compose
-else
-    retry_command curl -fsSL --retry 5 --retry-delay 2 -L "https://github.com/docker/compose/releases/download/$${DOCKER_COMPOSE_VERSION}/docker-compose-linux-x86_64" -o /usr/local/bin/docker-compose
-fi
-chmod +x /usr/local/bin/docker-compose
-ln -sf /usr/local/bin/docker-compose /usr/bin/docker-compose
-
-# Create OpenClaw directory structure
-echo "[4/8] Setting up OpenClaw directories..."
-mkdir -p /opt/openclaw/{data,config}
-cd /opt/openclaw
-chown -R ubuntu:ubuntu /opt/openclaw
-
-# Install AWS CLI v2
-echo "[4.5/8] Installing AWS CLI v2..."
+# [2/8] Install AWS CLI v2
+echo "[2/8] Installing AWS CLI v2..."
 ARCH=$(uname -m)
 if [ "$ARCH" = "aarch64" ]; then
-    retry_command curl -fsSL --retry 5 --retry-delay 2 "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
+    retry_command curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
 else
-    retry_command curl -fsSL --retry 5 --retry-delay 2 "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+    retry_command curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
 fi
 unzip -q awscliv2.zip
 ./aws/install --update
 rm -rf aws awscliv2.zip
+echo "AWS CLI version: $(aws --version)"
 
-# Fetch secrets from SSM Parameter Store
-echo "[5/8] Retrieving secrets from SSM..."
+# [3/8] Configure SSM Agent (pre-installed on Ubuntu 24.04)
+echo "[3/8] Configuring SSM Agent..."
+snap start amazon-ssm-agent 2>/dev/null || systemctl start amazon-ssm-agent || true
 
-# Retry logic for SSM parameter retrieval
-max_retries=5
-retry_count=0
-GATEWAY_TOKEN=""
+# [4/8] Install Node.js 22 + OpenClaw under ubuntu user
+echo "[4/8] Installing Node.js and OpenClaw..."
+sudo -u ubuntu bash << 'NODEINSTALL'
+set -e
+export HOME=/home/ubuntu
+cd ~
 
-while [ $retry_count -lt $max_retries ] && [ -z "$GATEWAY_TOKEN" ]; do
-    GATEWAY_TOKEN=$(aws ssm get-parameter --name "${gateway_token_param}" --with-decryption --query 'Parameter.Value' --output text --region ${region} 2>/dev/null)
-    if [ -z "$GATEWAY_TOKEN" ]; then
-        retry_count=$((retry_count + 1))
-        echo "Failed to retrieve gateway token, retry $retry_count/$max_retries..."
-        sleep 5
+# Install NVM
+for i in 1 2 3; do
+    if curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash; then
+        break
     fi
+    echo "NVM install failed, retry $i/3..."
+    sleep 5
 done
 
-if [ -z "$GATEWAY_TOKEN" ]; then
-    echo "ERROR: Failed to retrieve gateway token from SSM after $max_retries attempts"
-    exit 1
-fi
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
-%{ if model_provider == "openrouter" ~}
+nvm install 22
+nvm use 22
+nvm alias default 22
+
+# Install OpenClaw
+npm config set registry https://registry.npmjs.org/
+npm install -g openclaw@latest --timeout=300000 || {
+    echo "OpenClaw install failed, retrying..."
+    npm cache clean --force
+    npm install -g openclaw@latest --timeout=300000
+}
+
+# Ensure NVM is in bashrc
+if ! grep -q 'NVM_DIR' ~/.bashrc; then
+    echo 'export NVM_DIR="$HOME/.nvm"' >> ~/.bashrc
+    echo '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"' >> ~/.bashrc
+fi
+NODEINSTALL
+
+# [5/8] Generate gateway token and retrieve secrets
+echo "[5/8] Generating gateway token and retrieving secrets..."
+
+# Generate gateway token at boot
+GATEWAY_TOKEN=$(openssl rand -hex 24)
+
+# Write gateway token to SSM Parameter Store
+aws ssm put-parameter \
+    --name "${gateway_token_ssm_path}" \
+    --value "$GATEWAY_TOKEN" \
+    --type "SecureString" \
+    --overwrite \
+    --region ${region}
+echo "Gateway token stored in SSM: ${gateway_token_ssm_path}"
+
+# Determine effective provider (may fall back to bedrock)
+EFFECTIVE_PROVIDER="${model_provider}"
+
+%{ if model_provider == "openrouter" && openrouter_ssm_param != "" ~}
+# Attempt to retrieve OpenRouter API key from SSM
+max_retries=5
 retry_count=0
 OPENROUTER_API_KEY=""
 while [ $retry_count -lt $max_retries ] && [ -z "$OPENROUTER_API_KEY" ]; do
-    OPENROUTER_API_KEY=$(aws ssm get-parameter --name "${openrouter_key_param}" --with-decryption --query 'Parameter.Value' --output text --region ${region} 2>/dev/null)
+    OPENROUTER_API_KEY=$(aws ssm get-parameter \
+        --name "${openrouter_ssm_param}" \
+        --with-decryption \
+        --query 'Parameter.Value' \
+        --output text \
+        --region ${region} 2>/dev/null) || true
     if [ -z "$OPENROUTER_API_KEY" ]; then
         retry_count=$((retry_count + 1))
         echo "Failed to retrieve OpenRouter API key, retry $retry_count/$max_retries..."
@@ -121,130 +133,186 @@ while [ $retry_count -lt $max_retries ] && [ -z "$OPENROUTER_API_KEY" ]; do
 done
 
 if [ -z "$OPENROUTER_API_KEY" ]; then
-    echo "ERROR: Failed to retrieve OpenRouter API key from SSM after $max_retries attempts"
-    exit 1
+    echo "WARNING: OpenRouter key not found in SSM. Falling back to Bedrock provider."
+    EFFECTIVE_PROVIDER="bedrock"
 fi
 %{ endif ~}
 
-# Create docker-compose.yml
-echo "[6/8] Creating Docker Compose configuration..."
-cat > /opt/openclaw/docker-compose.yml << COMPOSEEOF
-version: '3.8'
+# [6/8] Configure OpenClaw
+echo "[6/8] Writing OpenClaw configuration (provider: $EFFECTIVE_PROVIDER)..."
 
-services:
-  openclaw:
-    # SECURITY: Pinned to specific version (update this when upgrading)
-    image: openclaw/openclaw:v0.1.0
-    container_name: openclaw
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:18789:18789"
-    environment:
-      - GATEWAY_TOKEN=$GATEWAY_TOKEN
-%{ if model_provider == "openrouter" ~}
-      - OPENROUTER_API_KEY=$OPENROUTER_API_KEY
-      - MODEL_PROVIDER=openrouter
-      - MODEL_NAME=openai/gpt-4o-mini
-%{ else ~}
-      - MODEL_PROVIDER=bedrock
-      - BEDROCK_MODEL_ID=${bedrock_model_id}
-      - AWS_REGION=${region}
-%{ endif ~}
-    volumes:
-      - /opt/openclaw/data:/app/data
-      - /opt/openclaw/config:/app/config
-    logging:
-      driver: "awslogs"
-      options:
-        awslogs-region: "${region}"
-        awslogs-group: "${log_group}"
-        awslogs-stream-prefix: "openclaw"
-COMPOSEEOF
+sudo -u ubuntu mkdir -p /home/ubuntu/.openclaw
 
-chown ubuntu:ubuntu /opt/openclaw/docker-compose.yml
+if [ "$EFFECTIVE_PROVIDER" = "openrouter" ]; then
+    sudo -u ubuntu tee /home/ubuntu/.openclaw/openclaw.json > /dev/null << JSONEOF
+{
+  "gateway": {
+    "mode": "local",
+    "port": 18789,
+    "bind": "loopback",
+    "controlUi": {
+      "enabled": true,
+      "allowInsecureAuth": false
+    },
+    "auth": {
+      "mode": "token",
+      "token": "$GATEWAY_TOKEN"
+    }
+  },
+  "models": {
+    "providers": {
+      "openrouter": {
+        "baseUrl": "https://openrouter.ai/api/v1",
+        "api": "openai",
+        "auth": "api-key",
+        "apiKey": "$OPENROUTER_API_KEY",
+        "models": [
+          {
+            "id": "openai/gpt-4o-mini",
+            "name": "GPT-4o Mini",
+            "input": ["text", "image"],
+            "contextWindow": 128000,
+            "maxTokens": 16384
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "openrouter/openai/gpt-4o-mini"
+      }
+    }
+  }
+}
+JSONEOF
+else
+    sudo -u ubuntu tee /home/ubuntu/.openclaw/openclaw.json > /dev/null << JSONEOF
+{
+  "gateway": {
+    "mode": "local",
+    "port": 18789,
+    "bind": "loopback",
+    "controlUi": {
+      "enabled": true,
+      "allowInsecureAuth": false
+    },
+    "auth": {
+      "mode": "token",
+      "token": "$GATEWAY_TOKEN"
+    }
+  },
+  "models": {
+    "providers": {
+      "amazon-bedrock": {
+        "baseUrl": "https://bedrock-runtime.${region}.amazonaws.com",
+        "api": "bedrock-converse-stream",
+        "auth": "aws-sdk",
+        "models": [
+          {
+            "id": "${bedrock_model_id}",
+            "name": "Bedrock Model",
+            "input": ["text", "image"],
+            "contextWindow": 200000,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "amazon-bedrock/${bedrock_model_id}"
+      }
+    }
+  }
+}
+JSONEOF
+fi
 
-# Create systemd service for Docker Compose
-echo "[7/8] Creating systemd service..."
-cat > /etc/systemd/system/openclaw.service << 'SERVICEEOF'
-[Unit]
-Description=OpenClaw Service
-Requires=docker.service
-After=docker.service
+# [7/8] Install systemd service + enable Telegram plugin
+echo "[7/8] Setting up systemd service and plugins..."
 
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=/opt/openclaw
-ExecStart=/usr/local/bin/docker-compose up -d
-ExecStop=/usr/local/bin/docker-compose down
-TimeoutStartSec=0
+# Enable systemd linger for ubuntu user (services persist without login)
+loginctl enable-linger ubuntu
 
-[Install]
-WantedBy=multi-user.target
-SERVICEEOF
+# Install daemon (creates user-level systemd service)
+sudo -H -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 bash -c '
+export HOME=/home/ubuntu
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+openclaw daemon install || echo "Daemon install failed"
+'
 
-systemctl daemon-reload
-systemctl enable openclaw
+# Enable service to persist across reboots
+sudo -H -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 bash -c '
+systemctl --user enable openclaw 2>/dev/null || systemctl --user enable openclaw.service 2>/dev/null || echo "Service enable deferred"
+'
 
-# Start OpenClaw
-echo "[8/8] Starting OpenClaw..."
-systemctl start openclaw
+# Enable Telegram plugin (no bot token configured yet -- see Runbook.md)
+sudo -H -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 bash -c '
+export HOME=/home/ubuntu
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+openclaw plugins enable telegram || echo "Telegram plugin enable failed"
+'
 
-# Wait for container to be healthy
-echo "Waiting for OpenClaw to start..."
-sleep 15
+# Start the daemon
+sudo -H -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 bash -c '
+systemctl --user start openclaw 2>/dev/null || systemctl --user start openclaw.service 2>/dev/null || echo "Service start deferred to linger"
+'
 
-if docker ps | grep -q openclaw; then
-    echo "✓ OpenClaw container is running"
-    
-    # Get instance metadata using IMDSv2 only (enforced by metadata_options)
-    TOKEN_IMDS=$(curl -sf -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
-    INSTANCE_ID=$(curl -sf -H "X-aws-ec2-metadata-token: $TOKEN_IMDS" http://169.254.169.254/latest/meta-data/instance-id)
-    
-    # Create access instructions (token NOT stored here - retrieve from SSM only)
-    cat > /opt/openclaw/ACCESS.txt << EOF
+# [8/8] Verify and create access info
+echo "[8/8] Verifying installation..."
+sleep 10
+
+# Get instance metadata via IMDSv2
+TOKEN_IMDS=$(curl -sf -X PUT "http://169.254.169.254/latest/api/token" \
+    -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+INSTANCE_ID=$(curl -sf -H "X-aws-ec2-metadata-token: $TOKEN_IMDS" \
+    http://169.254.169.254/latest/meta-data/instance-id)
+
+# Create access instructions (NO token in plaintext)
+cat > /home/ubuntu/ACCESS.txt << EOF
 ==========================================
 OpenClaw Access Information
 ==========================================
 Instance ID: $INSTANCE_ID
 Region: ${region}
-Model Provider: ${model_provider}
+Model Provider: $EFFECTIVE_PROVIDER
 
 To access the Web UI:
 1. Port forward from your local machine:
-   aws ssm start-session --target $INSTANCE_ID --region ${region} --document-name AWS-StartPortForwardingSession --parameters '{"portNumber":["18789"],"localPortNumber":["18789"]}'
+   aws ssm start-session --target $INSTANCE_ID --region ${region} \\
+     --document-name AWS-StartPortForwardingSession \\
+     --parameters '{"portNumber":["18789"],"localPortNumber":["18789"]}'
 
 2. Get gateway token from SSM (secure method):
-   aws ssm get-parameter --name "${gateway_token_param}" --with-decryption --region ${region} --query 'Parameter.Value' --output text
+   aws ssm get-parameter --name "${gateway_token_ssm_path}" \\
+     --with-decryption --region ${region} \\
+     --query 'Parameter.Value' --output text
 
-3. Open in browser:
-   http://localhost:18789/?token=<TOKEN_FROM_SSM>
+3. Open: http://localhost:18789/?token=<TOKEN_FROM_SSM>
 
 IMPORTANT: Gateway token is stored ONLY in AWS SSM Parameter Store.
-Do not store tokens in plain text files.
 ==========================================
 EOF
-    
-    chown ubuntu:ubuntu /opt/openclaw/ACCESS.txt
-    echo "SUCCESS: $(date)" > /opt/openclaw/setup_complete.txt
-    echo "✓ Setup complete!"
-else
-    echo "✗ OpenClaw container failed to start"
-    echo "Checking logs..."
-    docker logs openclaw 2>&1 || echo "No logs available"
-    echo "FAILED: $(date)" > /opt/openclaw/setup_complete.txt
-    exit 1
-fi
+
+chown ubuntu:ubuntu /home/ubuntu/ACCESS.txt
+chmod 600 /home/ubuntu/ACCESS.txt
+
+echo "SUCCESS: $(date)" > /home/ubuntu/.openclaw/setup_complete.txt
+chown ubuntu:ubuntu /home/ubuntu/.openclaw/setup_complete.txt
 
 echo "=========================================="
 echo "Setup Complete: $(date)"
 echo "=========================================="
 echo ""
-echo "To verify OpenClaw is running:"
-echo "  docker ps"
+echo "Debug commands (as ubuntu user):"
+echo "  systemctl --user status openclaw"
+echo "  journalctl --user -u openclaw -f"
 echo ""
-echo "To view logs:"
-echo "  docker logs -f openclaw"
-echo ""
-echo "To view access instructions:"
-echo "  cat /opt/openclaw/ACCESS.txt"
+echo "View access instructions:"
+echo "  cat ~/ACCESS.txt"

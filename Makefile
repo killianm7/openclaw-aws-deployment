@@ -1,4 +1,4 @@
-.PHONY: help fmt validate security plan apply destroy test test-static test-plan test-docker
+.PHONY: help fmt validate security plan apply destroy test test-static test-plan test-unit
 
 # Default target
 help:
@@ -17,7 +17,6 @@ help:
 	@echo "  make test          - Run complete test suite (requires AWS)"
 	@echo "  make test-static   - Run static analysis only (no AWS needed)"
 	@echo "  make test-plan     - Run terraform plan only (requires AWS)"
-	@echo "  make test-docker   - Validate Docker Compose configuration"
 	@echo "  make test-unit     - Run Terraform unit tests"
 	@echo ""
 	@echo "Deployment:"
@@ -63,10 +62,6 @@ test-static:
 test-plan:
 	@echo "Running terraform plan analysis..."
 	@./tests/test-deployment.sh --plan-only
-
-test-docker:
-	@echo "Validating Docker Compose..."
-	@./tests/test-docker-compose.sh
 
 test-unit:
 	@echo "Running Terraform unit tests..."

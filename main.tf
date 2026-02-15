@@ -47,54 +47,9 @@ locals {
   is_arm64           = can(regex("^t4g|^c6g|^c7g|^m6g|^m7g|^r6g|^r7g", var.instance_type))
   architecture_label = local.is_arm64 ? "arm64" : "amd64"
 
-  # SSM parameter paths
-  ssm_prefix     = var.ssm_parameter_prefix
-  gateway_token  = "${local.ssm_prefix}/${var.environment}/gateway-token"
-  openrouter_key = "${local.ssm_prefix}/${var.environment}/openrouter-api-key"
-
-  # Platform-specific configuration
-  user_data_vars = {
-    environment          = var.environment
-    model_provider       = var.model_provider
-    bedrock_model_id     = var.bedrock_model_id
-    gateway_token_param  = aws_ssm_parameter.gateway_token.name
-    openrouter_key_param = var.model_provider == "openrouter" ? aws_ssm_parameter.openrouter_api_key[0].name : ""
-    region               = data.aws_region.current.name
-    log_group            = aws_cloudwatch_log_group.user_data.name
-  }
-}
-
-# Store OpenRouter API Key in SSM (only if using OpenRouter)
-resource "aws_ssm_parameter" "openrouter_api_key" {
-  count = var.model_provider == "openrouter" ? 1 : 0
-
-  name  = local.openrouter_key
-  type  = "SecureString"
-  value = var.openrouter_api_key
-
-  tags = {
-    Name = "OpenRouter API Key"
-  }
-
-  lifecycle {
-    ignore_changes = [value]
-  }
-}
-
-# Generate and store gateway token
-resource "random_password" "gateway_token" {
-  length  = 48
-  special = false
-}
-
-resource "aws_ssm_parameter" "gateway_token" {
-  name  = local.gateway_token
-  type  = "SecureString"
-  value = random_password.gateway_token.result
-
-  tags = {
-    Name = "OpenClaw Gateway Token"
-  }
+  # SSM parameter paths (not managed by Terraform -- written by instance at boot)
+  ssm_prefix             = var.ssm_parameter_prefix
+  gateway_token_ssm_path = "${local.ssm_prefix}/${var.environment}/gateway-token"
 }
 
 # CloudWatch Log Group
@@ -132,7 +87,7 @@ module "vpc_endpoints" {
   vpc_id            = data.aws_vpc.default.id
   security_group_id = module.network.security_group_id
   subnet_ids        = data.aws_subnets.default.ids
-  enable_bedrock    = var.model_provider == "bedrock"
+  enable_bedrock    = true # Always enable -- Bedrock is default and fallback
   tags              = var.tags
   aws_region        = data.aws_region.current.name
 }
@@ -149,12 +104,12 @@ module "ec2" {
   root_volume_size = var.root_volume_size
   environment      = var.environment
 
-  model_provider       = var.model_provider
-  bedrock_model_id     = var.bedrock_model_id
-  gateway_token_param  = aws_ssm_parameter.gateway_token.name
-  openrouter_key_param = var.model_provider == "openrouter" ? aws_ssm_parameter.openrouter_api_key[0].name : ""
-  log_group            = aws_cloudwatch_log_group.user_data.name
-  region               = data.aws_region.current.name
+  model_provider         = var.model_provider
+  bedrock_model_id       = var.bedrock_model_id
+  gateway_token_ssm_path = local.gateway_token_ssm_path
+  openrouter_ssm_param   = var.openrouter_ssm_parameter
+  log_group              = aws_cloudwatch_log_group.user_data.name
+  region                 = data.aws_region.current.name
 
   tags = var.tags
 }

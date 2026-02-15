@@ -21,13 +21,13 @@ resource "aws_instance" "openclaw" {
   }
 
   user_data = base64encode(templatefile("${path.module}/../../files/user_data.sh.tpl", {
-    environment          = var.environment
-    model_provider       = var.model_provider
-    bedrock_model_id     = var.bedrock_model_id
-    gateway_token_param  = var.gateway_token_param
-    openrouter_key_param = var.openrouter_key_param
-    region               = var.region
-    log_group            = var.log_group
+    environment            = var.environment
+    model_provider         = var.model_provider
+    bedrock_model_id       = var.bedrock_model_id
+    gateway_token_ssm_path = var.gateway_token_ssm_path
+    openrouter_ssm_param   = var.openrouter_ssm_param
+    region                 = var.region
+    log_group              = var.log_group
   }))
 
   user_data_replace_on_change = true

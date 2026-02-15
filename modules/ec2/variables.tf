@@ -45,13 +45,13 @@ variable "bedrock_model_id" {
   default     = ""
 }
 
-variable "gateway_token_param" {
-  description = "SSM parameter path for gateway token"
+variable "gateway_token_ssm_path" {
+  description = "SSM parameter path where userdata will store the gateway token"
   type        = string
 }
 
-variable "openrouter_key_param" {
-  description = "SSM parameter path for OpenRouter API key"
+variable "openrouter_ssm_param" {
+  description = "SSM parameter path for OpenRouter API key (empty if not using OpenRouter)"
   type        = string
   default     = ""
 }

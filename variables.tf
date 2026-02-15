@@ -35,20 +35,19 @@ variable "enable_vpc_endpoints" {
 }
 
 variable "model_provider" {
-  description = "AI model provider: 'openrouter' (default) or 'bedrock'"
+  description = "AI model provider: 'bedrock' (default) or 'openrouter'"
   type        = string
-  default     = "openrouter"
+  default     = "bedrock"
 
   validation {
-    condition     = contains(["openrouter", "bedrock"], var.model_provider)
-    error_message = "Model provider must be 'openrouter' or 'bedrock'."
+    condition     = contains(["bedrock", "openrouter"], var.model_provider)
+    error_message = "Model provider must be 'bedrock' or 'openrouter'."
   }
 }
 
-variable "openrouter_api_key" {
-  description = "OpenRouter API key (required if model_provider = 'openrouter'). Stored in SSM SecureString."
+variable "openrouter_ssm_parameter" {
+  description = "SSM parameter path for OpenRouter API key (set via CLI, not managed by Terraform). Leave empty for Bedrock."
   type        = string
-  sensitive   = true
   default     = ""
 }
 

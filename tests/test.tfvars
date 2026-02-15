@@ -6,8 +6,8 @@ environment   = "test"
 instance_type = "t4g.small"
 
 # Model provider configuration
-model_provider     = "openrouter"
-openrouter_api_key = "sk-or-v1-test-key-not-real"
+model_provider   = "bedrock"
+bedrock_model_id = "amazon.nova-lite-v1:0"
 
 # Optional features (disabled for cost savings in tests)
 enable_vpc_endpoints = false

@@ -40,8 +40,7 @@ run "valid_instance_type_c6g_large" {
 # Test model provider validation
 run "valid_model_provider_openrouter" {
   variables {
-    model_provider     = "openrouter"
-    openrouter_api_key = "test-api-key"
+    model_provider = "openrouter"
   }
 
   assert {
@@ -173,8 +172,8 @@ run "test_default_values" {
   }
 
   assert {
-    condition     = var.model_provider == "openrouter"
-    error_message = "Default model provider should be openrouter"
+    condition     = var.model_provider == "bedrock"
+    error_message = "Default model provider should be bedrock"
   }
 
   assert {

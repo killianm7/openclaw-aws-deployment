@@ -1,177 +1,186 @@
 # AGENTS.md - Agentic Coding Guidelines
 
+## Project Overview
+
+Terraform deployment for OpenClaw on AWS EC2. Native host install (no Docker), Bedrock default provider, SSM-only access. Gateway token generated at boot by userdata and stored in SSM SecureString — Terraform manages no secrets.
+
 ## Build/Lint/Test Commands
 
-### Terraform Commands
 ```bash
-# Format all Terraform files
-terraform fmt -recursive
-
-# Validate Terraform configuration
-terraform validate
-
-# Initialize Terraform (required before other commands)
+# Initialize (required before any other command)
 terraform init
 
-# Plan deployment
+# Format all .tf files (run before every commit)
+terraform fmt -recursive
+
+# Validate configuration syntax and module wiring
+terraform validate
+
+# Run full test suite (format + validate + plan + unit tests; needs AWS creds)
+make test
+
+# Run ONLY static analysis (no AWS credentials needed)
+make test-static
+
+# Run ONLY terraform plan analysis (needs AWS credentials)
+make test-plan
+
+# Run a single unit-test file
+terraform test
+
+# Security scan (needs tfsec: brew install tfsec)
+make security
+
+# Plan without applying
 terraform plan
 
-# Apply deployment
-terraform apply
-
-# Plan destroy
-terraform plan -destroy
-
-# Destroy resources
-terraform destroy
+# Apply from saved plan
+make plan && make apply
 ```
 
-### Security Scanning
-```bash
-# Install tfsec (if not already installed)
-brew install tfsec
+### Key Makefile Targets
 
-# Run security scan
-make security-scan
-# or manually:
-tfsec .
-```
+| Target | AWS creds? | What it does |
+|--------|-----------|--------------|
+| `make fmt` | No | `terraform fmt -recursive` |
+| `make validate` | No | `terraform validate` |
+| `make security` | No | tfsec scan (HIGH+CRITICAL) |
+| `make test-static` | No | fmt + validate + tfsec + structure checks |
+| `make test-plan` | Yes | `terraform plan` with analysis |
+| `make test-unit` | No | `terraform test` (runs `tests/*.tftest.hcl`) |
+| `make test` | Yes | All of the above combined |
+| `make ci` | Yes | Strict mode for CI pipelines |
 
 ## Code Style Guidelines
 
-### File Structure
-- Use separate files: `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`
-- Place reusable components in `modules/<module_name>/`
-- Use `files/` directory for templates and scripts
+### File Layout per Module
+
+Each module directory (`modules/<name>/`) and the root must contain:
+- `main.tf` — resources and data sources
+- `variables.tf` — input variables (every variable needs `description` and `type`)
+- `outputs.tf` — output values
+
+Root also has: `versions.tf` (provider constraints), `terraform.tfvars.example`.
+
+### Ordering Within `main.tf`
+
+1. Data sources (with `# Data Sources` header)
+2. Locals (with `# Locals` header)
+3. Resources in logical order (IAM → network → compute)
+4. Module calls last
 
 ### Naming Conventions
-- Use `snake_case` for all resource names, variables, and outputs
-- Resource names: lowercase with underscores (e.g., `aws_instance.openclaw`)
-- Variable names: descriptive and prefixed by purpose if needed (e.g., `aws_region`, `instance_type`)
-- Module names: lowercase, descriptive (e.g., `iam`, `network`, `ec2`)
+
+- **All identifiers**: `snake_case` — resources, variables, outputs, locals, modules
+- **Resource names**: `aws_<service>.<descriptive_name>` (e.g., `aws_iam_role.openclaw`)
+- **Variable names**: prefixed by domain (e.g., `aws_region`, `bedrock_model_id`, `root_volume_size`)
+- **Module directories**: lowercase, single word when possible (`iam`, `network`, `ec2`)
+- **SSM paths**: `/<project>/<environment>/<key-name>` (e.g., `/openclaw/dev/gateway-token`)
 
 ### Formatting
-- Run `terraform fmt -recursive` before committing
-- Indent with 2 spaces
-- Align equals signs in blocks for readability
-- Maximum line length: 100 characters where practical
+
+- `terraform fmt -recursive` is the authority — always run before committing
+- 2-space indentation (Terraform default)
+- Align `=` signs within a block for readability
+- Keep lines under 100 characters where practical
 
 ### Variables
+
 ```hcl
-variable "example_name" {
-  description = "Clear, descriptive description of the variable"
-  type        = string  # Always specify type
-  default     = "value" # Include default if applicable
-  sensitive   = true    # Mark secrets with sensitive = true
-  
+variable "example" {
+  description = "What this variable controls"
+  type        = string
+  default     = "value"
+
   validation {
-    condition     = can(regex("^pattern$", var.example_name))
-    error_message = "Human-readable error message explaining valid values."
+    condition     = can(regex("^pattern$", var.example))
+    error_message = "Human-readable message explaining valid values."
   }
 }
 ```
 
-### Resource Organization
-1. Data sources first (with comment headers)
-2. Local values
-3. Resources in logical order (IAM before EC2)
-4. Modules last
-
-### Comments
-- Use `#` for single-line comments
-- Add section headers for groups: `# Data Sources`, `# Locals`, `# Resources`
-- Comment complex logic or security-critical decisions
-- Reference issue numbers for workarounds: `# See: github.com/org/repo/issues/123`
-
-### Security Best Practices
-- Always use `metadata_options { http_tokens = "required" }` for EC2 IMDSv2
-- Scope IAM policies to specific resources, never use `*`
-- Mark sensitive variables with `sensitive = true`
-- Use `SecureString` for SSM parameters containing secrets
-- Pin Docker images to specific versions, never use `latest`
-- Encrypt EBS volumes: `encrypted = true`
-
-### Error Handling
-- Use validation blocks on variables with clear error messages
-- Use `precondition` and `postcondition` lifecycle rules for complex validation
-- Include `count` or `for_each` for conditional resources instead of complex logic
-
-### Module Design
-- Pass all required data via explicit variables (no implicit dependencies)
-- Use clear variable descriptions with types and defaults
-- Define outputs for all values other modules might need
-- Keep modules focused on single responsibility
+- Always specify `type` and `description`
+- Add `validation` blocks with clear `error_message` for user-facing variables
+- Never add `sensitive = true` to variables — this project keeps all secrets out of Terraform state
 
 ### Outputs
+
 ```hcl
-output "resource_id" {
-  description = "Clear description of the output value"
-  value       = aws_resource.name.id
-  sensitive   = true  # If value contains sensitive data
+output "name" {
+  description = "What this output provides"
+  value       = some_resource.attr
 }
 ```
 
-### Version Constraints
+- Every output needs a `description`
+- Do not mark outputs `sensitive` unless they contain actual secret values
+- Prefer actionable outputs (copy-pasteable CLI commands) over raw IDs
+
+### Security Rules (hard requirements)
+
+- **No secrets in Terraform state** — gateway token is generated at boot; API keys are set via CLI
+- **IMDSv2 enforced**: `metadata_options { http_tokens = "required" }` on all EC2 instances
+- **EBS encryption**: `encrypted = true` on all volumes
+- **SSM SecureString** for any parameter containing a secret
+- **IAM least privilege**: scope to specific resource ARNs; `*` only where AWS requires it (e.g., Bedrock)
+- **No inbound security group rules** — SSM-only access model
+- **Gateway binds loopback** (`127.0.0.1`) — access via SSM port-forward only
+- **`allowInsecureAuth: false`** in OpenClaw gateway config
+
+### IAM Policy Pattern
+
 ```hcl
-terraform {
-  required_version = ">= 1.5.0"
-  
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"  # Use pessimistic constraint operator
-    }
-  }
+resource "aws_iam_role_policy" "name" {
+  name = "descriptive-name"
+  role = aws_iam_role.openclaw.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["service:SpecificAction"]
+      Resource = "arn:aws:service:${var.aws_region}:${var.aws_account_id}:resource/*"
+    }]
+  })
 }
 ```
 
-### Bash Scripts (user_data.sh.tpl)
-- Use `set -euo pipefail` for strict error handling
-- Add retry logic for network operations
-- Use full paths for commands in production
-- Comment each major step with progress indicators
-- Redirect output to logs: `exec > >(tee /var/log/script.log)`
+### Bash Scripts (`files/user_data.sh.tpl`)
+
+- Start with `set -euo pipefail`
+- Log everything: `exec > >(tee /var/log/openclaw-setup.log) 2>&1`
+- Use numbered step markers: `echo "[3/8] Installing Node.js..."`
+- Add `retry_command` wrapper for all network operations
+- Use `$${var}` for bash variables (Terraform template escaping); `${var}` for template variables
+- Use IMDSv2 exclusively (`curl -X PUT ... -H "X-aws-ec2-metadata-token-ttl-seconds: 21600"`)
+- Never write secrets to disk — pass via environment variables or heredoc stdin
+- Set `chmod 600` on any file containing access instructions
 
 ### Tagging
-- Always include standard tags via `default_tags` in provider
-- Resource-specific tags via `merge(var.tags, { Name = "specific-name" })`
-- Standard tags: `Project`, `ManagedBy`, `Environment`
 
-### Pre-commit Checklist
-Before submitting changes:
-1. [ ] Run `terraform fmt -recursive`
-2. [ ] Run `terraform validate`
-3. [ ] Run `make security-scan` (tfsec)
-4. [ ] Ensure no hardcoded secrets
-5. [ ] Verify all variables have descriptions and types
-6. [ ] Check that sensitive data is marked with `sensitive = true`
-7. [ ] Review IAM policies for least privilege
-8. [ ] Test with `terraform plan` and review changes
+- Standard tags applied via `default_tags` in provider block: `Project`, `ManagedBy`, `Environment`
+- Resource-specific: `tags = merge(var.tags, { Name = "openclaw-${var.environment}" })`
 
-### Documentation
-- Update README.md for new features
-- Document breaking changes in commit messages
-- Add examples to terraform.tfvars.example for new variables
+### Error Handling
 
-## Makefile Targets
-```makefile
-.PHONY: fmt validate security plan apply destroy
+- Prefer `validation` blocks on variables over runtime checks
+- Use `count` or `for_each` for conditional resources — avoid ternary in resource bodies
+- In userdata: if an optional secret (e.g., OpenRouter key) can't be retrieved, fall back gracefully — don't `exit 1`
 
-fmt:
-	terraform fmt -recursive
+## Architecture Invariants
 
-validate:
-	terraform validate
+- **No Docker** — OpenClaw runs as a native Node.js process via `openclaw daemon install`
+- **systemd user service** — managed under the `ubuntu` user with `loginctl enable-linger`
+- **Bedrock is always the fallback** — IAM Bedrock permissions are always attached
+- **Gateway token lifecycle** — generated at boot, written to SSM by userdata, never in Terraform state
+- **Single EC2 instance** in default VPC — no NAT gateway, no custom networking
 
-security:
-	tfsec .
+## Pre-commit Checklist
 
-plan:
-	terraform plan -out=tfplan
-
-apply:
-	terraform apply tfplan
-
-destroy:
-	terraform destroy
-```
+1. `terraform fmt -recursive` (zero diff)
+2. `terraform validate` (success)
+3. `make security` (no HIGH/CRITICAL findings)
+4. No hardcoded secrets, tokens, or API keys anywhere
+5. All variables have `description` and `type`
+6. IAM policies scoped to specific resources
+7. `terraform plan` reviewed for unexpected changes
+8. README.md / Runbook.md updated if user-facing behavior changed

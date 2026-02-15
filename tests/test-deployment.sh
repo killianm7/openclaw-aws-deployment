@@ -175,22 +175,6 @@ run_static_analysis() {
     print_info "Skipping security scan"
   fi
   
-  # 1.4: Docker Compose validation
-  print_header "1.4: Docker Compose Validation"
-  if [ -f "docker-compose.yml" ]; then
-    if command_exists docker-compose || command_exists docker; then
-      if docker-compose -f docker-compose.yml config > /dev/null 2>&1; then
-        print_success "Docker Compose configuration is valid"
-      else
-        print_error "Docker Compose configuration has errors"
-      fi
-    else
-      print_warning "Docker not installed. Skipping Docker Compose validation"
-    fi
-  else
-    print_warning "docker-compose.yml not found in root directory"
-  fi
-  
   # 1.5: Variable validation
   print_header "1.5: Variable Definitions Check"
   if [ -f "variables.tf" ]; then

@@ -14,9 +14,13 @@ output "ssm_connect_command" {
 }
 
 output "gateway_token_ssm_path" {
-  description = "SSM Parameter Store path for gateway token"
-  value       = aws_ssm_parameter.gateway_token.name
-  sensitive   = true
+  description = "SSM Parameter Store path for gateway token (written by instance at boot)"
+  value       = local.gateway_token_ssm_path
+}
+
+output "gateway_token_retrieval_command" {
+  description = "Command to retrieve the gateway token from SSM"
+  value       = "aws ssm get-parameter --name ${local.gateway_token_ssm_path} --with-decryption --region ${data.aws_region.current.name} --query 'Parameter.Value' --output text"
 }
 
 output "web_ui_url" {
@@ -44,21 +48,31 @@ output "monthly_cost_estimate" {
   value       = var.enable_vpc_endpoints ? "~$35-45/month (includes VPC endpoints)" : "~$13-17/month (no VPC endpoints)"
 }
 
+output "openrouter_ssm_setup_command" {
+  description = "Command to store OpenRouter API key in SSM (run once before deploy if using OpenRouter)"
+  value       = "aws ssm put-parameter --name ${var.ssm_parameter_prefix}/${var.environment}/openrouter-api-key --type SecureString --value 'YOUR_KEY_HERE' --region ${data.aws_region.current.name}"
+}
+
 output "verification_commands" {
   description = "Commands to verify deployment"
   value       = <<-EOT
 # Check instance status
 aws ec2 describe-instances --instance-ids ${module.ec2.instance_id} --region ${data.aws_region.current.name}
 
-# Get gateway token (secure - retrieve from SSM)
-aws ssm get-parameter --name ${aws_ssm_parameter.gateway_token.name} --with-decryption --region ${data.aws_region.current.name} --query 'Parameter.Value' --output text
+# Get gateway token (written by instance at boot)
+aws ssm get-parameter --name ${local.gateway_token_ssm_path} --with-decryption --region ${data.aws_region.current.name} --query 'Parameter.Value' --output text
 
 # Connect via SSM
 aws ssm start-session --target ${module.ec2.instance_id} --region ${data.aws_region.current.name}
 
-# Check logs on instance
-sudo cat /var/log/openclaw-setup.log
-sudo docker logs openclaw
+# Check service status (run as ubuntu user on instance)
+sudo -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 systemctl --user status openclaw
+
+# View logs (run as ubuntu user on instance)
+sudo -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 journalctl --user -u openclaw --no-pager -n 50
+
+# View setup log
+cat /var/log/openclaw-setup.log
 
 # IMPORTANT: Gateway token is stored ONLY in AWS SSM Parameter Store.
 # Never store tokens in plain text files or environment variables.

@@ -16,3 +16,4 @@ tests/tfsec-results.txt
 *.tfvars.json
 # macOS
 .DS_Store
+terraform.tfvars
