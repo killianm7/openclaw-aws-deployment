@@ -1,5 +1,4 @@
 .terraform/
-.terraform.lock.hcl
 # Terraform state files
 *.tfstate
 *.tfstate.backup
@@ -11,9 +10,15 @@ crash.log
 tests/plan-output.txt
 tests/tfplan
 tests/tfsec-results.txt
-# Terraform variable files with secrets
+# Terraform variable files with secrets (keep .example tracked)
 *.tfvars
+!terraform.tfvars.example
+!tests/test.tfvars
 *.tfvars.json
 # macOS
 .DS_Store
-terraform.tfvars
+*.pkg
+.env
+.env.*
+*.pem
+*.key

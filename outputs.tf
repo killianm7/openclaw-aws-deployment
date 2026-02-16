@@ -66,10 +66,10 @@ aws ssm get-parameter --name ${local.gateway_token_ssm_path} --with-decryption -
 aws ssm start-session --target ${module.ec2.instance_id} --region ${data.aws_region.current.name}
 
 # Check service status (run as ubuntu user on instance)
-sudo -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 systemctl --user status openclaw
+sudo -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 systemctl --user status openclaw-gateway
 
 # View logs (run as ubuntu user on instance)
-sudo -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 journalctl --user -u openclaw --no-pager -n 50
+sudo -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 journalctl --user -u openclaw-gateway --no-pager -n 50
 
 # View setup log
 cat /var/log/openclaw-setup.log

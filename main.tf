@@ -50,6 +50,9 @@ locals {
   # SSM parameter paths (not managed by Terraform -- written by instance at boot)
   ssm_prefix             = var.ssm_parameter_prefix
   gateway_token_ssm_path = "${local.ssm_prefix}/${var.environment}/gateway-token"
+
+  # Sort subnet IDs for deterministic selection
+  sorted_subnet_ids = sort(data.aws_subnets.default.ids)
 }
 
 # CloudWatch Log Group
@@ -86,7 +89,7 @@ module "vpc_endpoints" {
 
   vpc_id            = data.aws_vpc.default.id
   security_group_id = module.network.security_group_id
-  subnet_ids        = data.aws_subnets.default.ids
+  subnet_ids        = local.sorted_subnet_ids
   enable_bedrock    = true # Always enable -- Bedrock is default and fallback
   tags              = var.tags
   aws_region        = data.aws_region.current.name
@@ -97,15 +100,19 @@ module "ec2" {
 
   ami_id               = data.aws_ami.ubuntu_2404.id
   instance_type        = var.instance_type
-  subnet_id            = data.aws_subnets.default.ids[0]
+  subnet_id            = local.sorted_subnet_ids[0]
   security_group_id    = module.network.security_group_id
   iam_instance_profile = module.iam.instance_profile_name
 
-  root_volume_size = var.root_volume_size
-  environment      = var.environment
+  root_volume_size          = var.root_volume_size
+  delete_ebs_on_termination = var.delete_ebs_on_termination
+  environment               = var.environment
 
   model_provider         = var.model_provider
   bedrock_model_id       = var.bedrock_model_id
+  bedrock_context_window = var.bedrock_context_window
+  bedrock_max_tokens     = var.bedrock_max_tokens
+  openrouter_model_id    = var.openrouter_model_id
   gateway_token_ssm_path = local.gateway_token_ssm_path
   openrouter_ssm_param   = var.openrouter_ssm_parameter
   log_group              = aws_cloudwatch_log_group.user_data.name

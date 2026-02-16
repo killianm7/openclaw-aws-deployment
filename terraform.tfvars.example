@@ -8,11 +8,22 @@ environment = "dev"
 instance_type = "t4g.small"
 
 # Model Provider Configuration
-model_provider   = "bedrock"             # Options: "bedrock" (default) or "openrouter"
-bedrock_model_id = "amazon.nova-lite-v1:0"
+model_provider   = "bedrock"              # Options: "bedrock" (default) or "openrouter"
+bedrock_model_id = "us.amazon.nova-2-lite-v1:0"
+
+# Optional: Bedrock model tuning (defaults work for amazon.nova-lite-v1:0)
+bedrock_context_window = 1000000
+bedrock_max_tokens     = 8192
+
+# Optional: Switch to a reasoning model like DeepSeek R1
+# Some models require an inference profile ID (us. prefix) -- see Runbook.md
+# bedrock_model_id       = "us.deepseek.r1-v1:0"
+# bedrock_context_window = 128000
+# bedrock_max_tokens     = 8192
 
 # Optional: OpenRouter (set key in SSM first, see Runbook.md)
 # model_provider           = "openrouter"
+# openrouter_model_id      = "openai/gpt-4o-mini"
 # openrouter_ssm_parameter = "/openclaw/dev/openrouter-api-key"
 # Then run once:
 #   aws ssm put-parameter --name "/openclaw/dev/openrouter-api-key" \
@@ -21,6 +32,10 @@ bedrock_model_id = "amazon.nova-lite-v1:0"
 # VPC Endpoints - Disabled by default to save ~$22/month
 # Enable for production (private SSM/Bedrock access, compliance)
 enable_vpc_endpoints = false
+
+# EBS volume - set to false to preserve data on instance termination
+# (orphaned volumes incur charges)
+# delete_ebs_on_termination = true
 
 # Optional: Additional tags
 tags = {

@@ -2,7 +2,7 @@
 # These are safe test values - no real secrets or production configs
 
 aws_region    = "us-west-2"
-environment   = "test"
+environment   = "dev"
 instance_type = "t4g.small"
 
 # Model provider configuration

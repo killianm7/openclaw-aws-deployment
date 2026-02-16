@@ -15,6 +15,11 @@ variable "environment" {
   description = "Environment name (dev, staging, prod)"
   type        = string
   default     = "dev"
+
+  validation {
+    condition     = contains(["dev", "staging", "prod"], var.environment)
+    error_message = "Environment must be one of: dev, staging, prod."
+  }
 }
 
 variable "instance_type" {
@@ -72,6 +77,30 @@ variable "root_volume_size" {
     condition     = var.root_volume_size >= 20 && var.root_volume_size <= 1000
     error_message = "Root volume size must be between 20 and 1000 GB."
   }
+}
+
+variable "delete_ebs_on_termination" {
+  description = "Delete root EBS volume when instance is terminated. Set to false to preserve data (note: orphaned volumes incur charges)."
+  type        = bool
+  default     = true
+}
+
+variable "openrouter_model_id" {
+  description = "OpenRouter model ID (used when model_provider = 'openrouter')"
+  type        = string
+  default     = "openai/gpt-4o-mini"
+}
+
+variable "bedrock_context_window" {
+  description = "Context window size for the Bedrock model"
+  type        = number
+  default     = 200000
+}
+
+variable "bedrock_max_tokens" {
+  description = "Maximum output tokens for the Bedrock model"
+  type        = number
+  default     = 8192
 }
 
 variable "tags" {

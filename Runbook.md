@@ -136,6 +136,9 @@ Edit `terraform.tfvars`:
 ```hcl
 model_provider           = "openrouter"
 openrouter_ssm_parameter = "/openclaw/dev/openrouter-api-key"
+
+# Optional: choose a different OpenRouter model (default: openai/gpt-4o-mini)
+# openrouter_model_id = "anthropic/claude-3.5-sonnet"
 ```
 
 ### Step 3: Apply Changes
@@ -158,6 +161,116 @@ openrouter_ssm_parameter = ""
 ```bash
 terraform apply
 ```
+
+### Changing the Bedrock Model
+
+There are two ways to change the Bedrock model: live on the instance (no downtime), or via Terraform (recreates the instance).
+
+#### Option A: Live Swap (No Redeploy)
+
+This is the fastest approach -- edit the config file on the instance and restart the service. No Terraform apply needed.
+
+```bash
+# 1. Connect to the instance
+INSTANCE_ID=$(terraform output -raw instance_id)
+REGION=$(aws configure get region)
+aws ssm start-session --target $INSTANCE_ID --region $REGION
+
+# 2. Switch to the ubuntu user
+sudo su - ubuntu
+
+# 3. Edit the OpenClaw config
+vi ~/.openclaw/openclaw.json
+```
+
+In the config file, update these fields:
+
+- `models.providers.amazon-bedrock.models[0].id` -- the Bedrock model ID
+- `models.providers.amazon-bedrock.models[0].contextWindow` -- context window size
+- `models.providers.amazon-bedrock.models[0].maxTokens` -- max output tokens
+- `agents.defaults.model.primary` -- must match `amazon-bedrock/<model-id>`
+
+For example, to switch to DeepSeek R1:
+
+```json
+{
+  "models": {
+    "providers": {
+      "amazon-bedrock": {
+        "models": [
+          {
+            "id": "us.deepseek.r1-v1:0",
+            "name": "DeepSeek R1",
+            "input": ["text"],
+            "contextWindow": 128000,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "amazon-bedrock/us.deepseek.r1-v1:0"
+      }
+    }
+  }
+}
+```
+
+Then restart the service:
+
+```bash
+systemctl --user restart openclaw-gateway
+systemctl --user status openclaw-gateway
+```
+
+After confirming the new model works, update `terraform.tfvars` to keep Terraform in sync (so future `terraform apply` won't revert the change):
+
+```hcl
+bedrock_model_id       = "us.deepseek.r1-v1:0"
+bedrock_context_window = 128000
+bedrock_max_tokens     = 8192
+```
+
+#### Option B: Via Terraform (Recreates Instance)
+
+Update `terraform.tfvars` and apply. This destroys and recreates the EC2 instance with the new model config baked into user data. A new gateway token will be generated.
+
+```hcl
+bedrock_model_id       = "us.deepseek.r1-v1:0"
+bedrock_context_window = 128000
+bedrock_max_tokens     = 8192
+```
+
+```bash
+terraform apply
+```
+
+#### Inference Profile IDs
+
+Some Bedrock models (especially third-party models like DeepSeek) require a **cross-region inference profile ID** instead of a direct model ID for on-demand invocation. If you see an error like:
+
+> Invocation of model ID ... with on-demand throughput isn't supported.
+
+Prefix the model ID with `us.` (for US regions) to use the cross-region inference profile. For example:
+- Direct model ID: `deepseek.r1-v1:0` (won't work for on-demand)
+- Inference profile ID: `us.deepseek.r1-v1:0` (works)
+
+This applies to both the `openclaw.json` config and `terraform.tfvars`.
+
+#### Common Bedrock Models for Reasoning
+
+| Model | Model ID (use in config) | Input / Output per 1M tokens | Context | Notes |
+|-------|--------------------------|------------------------------|---------|-------|
+| DeepSeek R1 | `us.deepseek.r1-v1:0` | $0.62 / $1.85 | 128k | Cheapest reasoning model |
+| Mistral Magistral Small | `mistral.magistral-small-2509` | $0.50 / $1.50 | 128k | Mistral's reasoning model |
+| Claude Haiku 4.5 | `anthropic.claude-haiku-4-5-20251001-v1:0` | ~$1.00 / ~$5.00 | 200k | Fast, cheap Claude with extended thinking |
+| Claude Sonnet 4 | `anthropic.claude-sonnet-4-20250514-v1:0` | $3.00 / $15.00 | 200k | Excellent reasoning, premium price |
+| Amazon Nova Pro | `amazon.nova-pro-v1:0` | ~$0.80 / ~$3.20 | 300k | Better than Nova Lite, same API |
+
+**Note**: You must enable model access for the chosen model in the AWS console under **Amazon Bedrock > Model access** before using it. Pricing is for `us-east-1`; other regions may vary. Some models may require an inference profile ID prefix (see above).
 
 ## Telegram Bot Setup
 
@@ -217,17 +330,17 @@ cat ~/.openclaw/openclaw.json | jq '.channels.telegram = {
 }' > /tmp/openclaw-config.json && mv /tmp/openclaw-config.json ~/.openclaw/openclaw.json
 
 # Restart OpenClaw to pick up the new config
-systemctl --user restart openclaw
+systemctl --user restart openclaw-gateway
 ```
 
 ### Step 4: Verify Telegram is Working
 
 ```bash
 # Check service status
-systemctl --user status openclaw
+systemctl --user status openclaw-gateway
 
 # Watch logs for Telegram connection
-journalctl --user -u openclaw -f
+journalctl --user -u openclaw-gateway -f
 ```
 
 You should see Telegram connection messages in the logs.
@@ -254,7 +367,7 @@ openclaw plugins list
 openclaw channels status
 
 # View Telegram-specific logs
-journalctl --user -u openclaw --no-pager | grep -i telegram
+journalctl --user -u openclaw-gateway --no-pager | grep -i telegram
 
 # Test outbound connectivity to Telegram API
 curl -s https://api.telegram.org/bot<TOKEN>/getMe
@@ -276,36 +389,36 @@ aws ssm start-session --target $INSTANCE_ID --region $REGION
 sudo su - ubuntu
 
 # Check service status
-systemctl --user status openclaw
+systemctl --user status openclaw-gateway
 
 # View recent logs
-journalctl --user -u openclaw --no-pager -n 50
+journalctl --user -u openclaw-gateway --no-pager -n 50
 
 # Follow logs in real-time
-journalctl --user -u openclaw -f
+journalctl --user -u openclaw-gateway -f
 ```
 
 ### Restart OpenClaw
 
 ```bash
 sudo su - ubuntu
-systemctl --user restart openclaw
+systemctl --user restart openclaw-gateway
 ```
 
 ### Stop / Start
 
 ```bash
 sudo su - ubuntu
-systemctl --user stop openclaw
-systemctl --user start openclaw
+systemctl --user stop openclaw-gateway
+systemctl --user start openclaw-gateway
 ```
 
 ### From Root (without switching user)
 
 ```bash
-sudo -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 systemctl --user status openclaw
-sudo -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 journalctl --user -u openclaw --no-pager -n 50
-sudo -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 systemctl --user restart openclaw
+sudo -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 systemctl --user status openclaw-gateway
+sudo -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 journalctl --user -u openclaw-gateway --no-pager -n 50
+sudo -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 systemctl --user restart openclaw-gateway
 ```
 
 ## Verify Setup Completion
@@ -334,10 +447,10 @@ sudo su - ubuntu
 npm install -g openclaw@latest
 
 # Restart the service
-systemctl --user restart openclaw
+systemctl --user restart openclaw-gateway
 
 # Verify
-systemctl --user status openclaw
+systemctl --user status openclaw-gateway
 ```
 
 ## Managing Integration Secrets
@@ -427,13 +540,13 @@ aws ssm start-session --target $INSTANCE_ID --region $REGION
 sudo su - ubuntu
 
 # Check service status
-systemctl --user status openclaw
+systemctl --user status openclaw-gateway
 
 # Check if daemon was installed
 systemctl --user list-unit-files | grep openclaw
 
 # View logs
-journalctl --user -u openclaw --no-pager -n 100
+journalctl --user -u openclaw-gateway --no-pager -n 100
 
 # Check setup log
 cat /var/log/openclaw-setup.log | tail -100
@@ -505,7 +618,7 @@ aws ssm get-parameter \
 # Check OpenClaw logs for API errors
 aws ssm start-session --target $INSTANCE_ID --region $REGION
 sudo su - ubuntu
-journalctl --user -u openclaw --no-pager | grep -i error
+journalctl --user -u openclaw-gateway --no-pager | grep -i error
 ```
 
 ## Cleanup / Destroy
@@ -529,7 +642,16 @@ REGION=$(aws configure get region)
 aws ssm delete-parameter --name "/openclaw/dev/gateway-token" --region $REGION
 ```
 
-**Data preservation**: OpenClaw data is stored on the EBS volume. The destroy command will delete this. To preserve data:
+**Data preservation**: By default, the root EBS volume is deleted when the instance is terminated (`delete_ebs_on_termination = true`). To preserve the volume across instance replacements (e.g., during `terraform apply` with user_data changes), set:
+
+```hcl
+# In terraform.tfvars
+delete_ebs_on_termination = false
+```
+
+**Note**: When `delete_ebs_on_termination = false`, terminated instances leave behind orphaned EBS volumes that continue to incur charges. Clean up manually in the EC2 console under **Elastic Block Store > Volumes**.
+
+To preserve data without orphaning volumes, consider these alternatives before destroying:
 1. Create an AMI snapshot before destroying
 2. Or backup `/home/ubuntu/.openclaw/` from the instance
 
@@ -555,7 +677,7 @@ This deployment installs Node.js + OpenClaw directly on the host (no Docker):
 - **Pros**: Simpler, lower resource overhead, faster startup, matches upstream aws-samples pattern
 - **Cons**: Dependencies installed on host (managed by NVM)
 - **Service management**: systemd user service via `openclaw daemon install`
-- **Updates**: `npm install -g openclaw@latest && systemctl --user restart openclaw`
+- **Updates**: `npm install -g openclaw@latest && systemctl --user restart openclaw-gateway`
 
 ### Gateway Token Lifecycle
 
@@ -573,6 +695,20 @@ The gateway token is generated at boot by the instance and stored in SSM SecureS
 5. **IAM**: Bedrock + SSM permissions always present (least-privilege within scope)
 6. **Gateway binding**: Loopback only (127.0.0.1:18789) -- requires SSM port-forward
 7. **Token auth**: controlUi requires token, `allowInsecureAuth: false`
+
+### Restricting Outbound Egress (Optional Hardening)
+
+The default security group allows outbound HTTPS, HTTP, DNS, and NTP to `0.0.0.0/0`.
+This is required during initial setup for package downloads and AWS API access.
+
+For hardened production environments, consider restricting egress after initial setup:
+
+- **Enable VPC endpoints** (`enable_vpc_endpoints = true`) so SSM and Bedrock traffic
+  stays within the VPC and does not traverse the public internet.
+- **Tighten egress CIDR blocks** in `modules/network/main.tf` to allow only AWS service
+  IP ranges (available via `ip-ranges.json`) and any other required destinations.
+- **Remove HTTP (port 80) egress** after initial setup, since package updates can be
+  performed over HTTPS or via a scheduled maintenance window.
 
 ## Support
 

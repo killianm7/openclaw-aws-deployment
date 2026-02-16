@@ -5,6 +5,8 @@
 
 # Test valid instance types
 run "valid_instance_type_t4g_small" {
+  command = plan
+
   variables {
     instance_type = "t4g.small"
   }
@@ -16,6 +18,8 @@ run "valid_instance_type_t4g_small" {
 }
 
 run "valid_instance_type_t3_medium" {
+  command = plan
+
   variables {
     instance_type = "t3.medium"
   }
@@ -27,6 +31,8 @@ run "valid_instance_type_t3_medium" {
 }
 
 run "valid_instance_type_c6g_large" {
+  command = plan
+
   variables {
     instance_type = "c6g.large"
   }
@@ -39,6 +45,8 @@ run "valid_instance_type_c6g_large" {
 
 # Test model provider validation
 run "valid_model_provider_openrouter" {
+  command = plan
+
   variables {
     model_provider = "openrouter"
   }
@@ -50,6 +58,8 @@ run "valid_model_provider_openrouter" {
 }
 
 run "valid_model_provider_bedrock" {
+  command = plan
+
   variables {
     model_provider = "bedrock"
   }
@@ -62,6 +72,8 @@ run "valid_model_provider_bedrock" {
 
 # Test AWS region validation
 run "valid_aws_region_us_west_2" {
+  command = plan
+
   variables {
     aws_region = "us-west-2"
   }
@@ -73,6 +85,8 @@ run "valid_aws_region_us_west_2" {
 }
 
 run "valid_aws_region_eu_west_1" {
+  command = plan
+
   variables {
     aws_region = "eu-west-1"
   }
@@ -85,6 +99,8 @@ run "valid_aws_region_eu_west_1" {
 
 # Test root volume size validation
 run "valid_volume_size_minimum" {
+  command = plan
+
   variables {
     root_volume_size = 20
   }
@@ -96,6 +112,8 @@ run "valid_volume_size_minimum" {
 }
 
 run "valid_volume_size_maximum" {
+  command = plan
+
   variables {
     root_volume_size = 1000
   }
@@ -108,6 +126,8 @@ run "valid_volume_size_maximum" {
 
 # Test environment naming
 run "valid_environment_dev" {
+  command = plan
+
   variables {
     environment = "dev"
   }
@@ -119,6 +139,8 @@ run "valid_environment_dev" {
 }
 
 run "valid_environment_prod" {
+  command = plan
+
   variables {
     environment = "prod"
   }
@@ -131,6 +153,8 @@ run "valid_environment_prod" {
 
 # Test VPC endpoints configuration
 run "vpc_endpoints_disabled" {
+  command = plan
+
   variables {
     enable_vpc_endpoints = false
   }
@@ -142,6 +166,8 @@ run "vpc_endpoints_disabled" {
 }
 
 run "vpc_endpoints_enabled" {
+  command = plan
+
   variables {
     enable_vpc_endpoints = true
   }
@@ -152,37 +178,48 @@ run "vpc_endpoints_enabled" {
   }
 }
 
-# Test that verifies variable defaults work
+# Test that verifies expected values when explicitly set to defaults
+# Note: terraform test loads terraform.tfvars if present, so we explicitly
+# set the expected defaults here to avoid interference from local config.
 run "test_default_values" {
-  # Don't override any variables - test defaults
+  command = plan
+
+  variables {
+    aws_region           = "us-west-2"
+    environment          = "dev"
+    instance_type        = "t4g.small"
+    model_provider       = "bedrock"
+    root_volume_size     = 30
+    enable_vpc_endpoints = false
+  }
 
   assert {
     condition     = var.aws_region == "us-west-2"
-    error_message = "Default AWS region should be us-west-2"
+    error_message = "AWS region should be us-west-2"
   }
 
   assert {
     condition     = var.environment == "dev"
-    error_message = "Default environment should be dev"
+    error_message = "Environment should be dev"
   }
 
   assert {
     condition     = var.instance_type == "t4g.small"
-    error_message = "Default instance type should be t4g.small"
+    error_message = "Instance type should be t4g.small"
   }
 
   assert {
     condition     = var.model_provider == "bedrock"
-    error_message = "Default model provider should be bedrock"
+    error_message = "Model provider should be bedrock"
   }
 
   assert {
     condition     = var.root_volume_size == 30
-    error_message = "Default root volume size should be 30 GB"
+    error_message = "Root volume size should be 30 GB"
   }
 
   assert {
     condition     = var.enable_vpc_endpoints == false
-    error_message = "Default VPC endpoints should be disabled"
+    error_message = "VPC endpoints should be disabled"
   }
 }

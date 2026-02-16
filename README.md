@@ -77,13 +77,25 @@ instance_type = "t4g.small"
 model_provider   = "bedrock"
 bedrock_model_id = "amazon.nova-lite-v1:0"
 
+# Optional: Tune Bedrock model params (defaults match Nova Lite)
+# bedrock_context_window = 200000
+# bedrock_max_tokens     = 8192
+
+# Optional: Switch to a reasoning model (use inference profile ID)
+# bedrock_model_id       = "us.deepseek.r1-v1:0"
+# bedrock_context_window = 128000
+# bedrock_max_tokens     = 8192
+
 # Optional: Use OpenRouter instead (set key in SSM first, see Runbook.md)
 # model_provider           = "openrouter"
+# openrouter_model_id      = "openai/gpt-4o-mini"
 # openrouter_ssm_parameter = "/openclaw/dev/openrouter-api-key"
 
 # Optional VPC endpoints (+$22/month)
 enable_vpc_endpoints = false
 ```
+
+To switch Bedrock models (e.g., to DeepSeek R1 for reasoning) you can either edit the config live on the instance via SSM (no redeploy) or update `terraform.tfvars` and re-apply. See the [Runbook](Runbook.md#changing-the-bedrock-model) for step-by-step instructions.
 
 ## Project Structure
 
@@ -128,6 +140,14 @@ openclaw-aws-deployment/
 - **Least-privilege IAM**: Scoped permissions for SSM and Bedrock
 - **Loopback binding**: Gateway binds to 127.0.0.1 only, accessible via SSM port-forward
 - **No insecure auth**: controlUi requires token authentication
+
+> **Note on outbound egress:** The security group currently allows HTTPS/HTTP/DNS/NTP
+> egress to `0.0.0.0/0`. This is required during initial setup for package downloads
+> and AWS service access. For hardened production environments, consider restricting
+> egress to only AWS service CIDR ranges and required endpoints after the initial
+> setup completes. This can be done by tightening the security group egress rules in
+> `modules/network/main.tf` or by using VPC endpoints (`enable_vpc_endpoints = true`)
+> to route AWS traffic privately.
 
 ## Documentation
 

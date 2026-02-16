@@ -34,14 +34,27 @@ retry_command() {
     return 1
 }
 
-# [1/8] System update
-echo "[1/8] Updating system packages..."
-apt-get update
-apt-get upgrade -y
-apt-get install -y curl unzip jq ca-certificates
+# [1/9] System update
+echo "[1/9] Updating system packages..."
+retry_command apt-get update
+retry_command apt-get upgrade -y
+retry_command apt-get install -y curl unzip jq ca-certificates
 
-# [2/8] Install AWS CLI v2
-echo "[2/8] Installing AWS CLI v2..."
+# [2/9] Configure swap space (prevents OOM on small instances)
+echo "[2/9] Configuring 2 GB swap space..."
+if [ ! -f /swapfile ]; then
+    dd if=/dev/zero of=/swapfile bs=1M count=2048
+    chmod 600 /swapfile
+    mkswap /swapfile
+    swapon /swapfile
+    echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    echo "Swap enabled: $(swapon --show)"
+else
+    echo "Swap already configured"
+fi
+
+# [3/9] Install AWS CLI v2
+echo "[3/9] Installing AWS CLI v2..."
 ARCH=$(uname -m)
 if [ "$ARCH" = "aarch64" ]; then
     retry_command curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
@@ -53,12 +66,12 @@ unzip -q awscliv2.zip
 rm -rf aws awscliv2.zip
 echo "AWS CLI version: $(aws --version)"
 
-# [3/8] Configure SSM Agent (pre-installed on Ubuntu 24.04)
-echo "[3/8] Configuring SSM Agent..."
+# [4/9] Configure SSM Agent (pre-installed on Ubuntu 24.04)
+echo "[4/9] Configuring SSM Agent..."
 snap start amazon-ssm-agent 2>/dev/null || systemctl start amazon-ssm-agent || true
 
-# [4/8] Install Node.js 22 + OpenClaw under ubuntu user
-echo "[4/8] Installing Node.js and OpenClaw..."
+# [5/9] Install Node.js 22 + OpenClaw under ubuntu user
+echo "[5/9] Installing Node.js and OpenClaw..."
 sudo -u ubuntu bash << 'NODEINSTALL'
 set -e
 export HOME=/home/ubuntu
@@ -95,8 +108,8 @@ if ! grep -q 'NVM_DIR' ~/.bashrc; then
 fi
 NODEINSTALL
 
-# [5/8] Generate gateway token and retrieve secrets
-echo "[5/8] Generating gateway token and retrieving secrets..."
+# [6/9] Generate gateway token and retrieve secrets
+echo "[6/9] Generating gateway token and retrieving secrets..."
 
 # Generate gateway token at boot
 GATEWAY_TOKEN=$(openssl rand -hex 24)
@@ -138,8 +151,31 @@ if [ -z "$OPENROUTER_API_KEY" ]; then
 fi
 %{ endif ~}
 
-# [6/8] Configure OpenClaw
-echo "[6/8] Writing OpenClaw configuration (provider: $EFFECTIVE_PROVIDER)..."
+# [7/9] Install systemd service + enable Telegram plugin
+echo "[7/9] Setting up systemd service and plugins..."
+
+# Enable systemd linger for ubuntu user (services persist without login)
+loginctl enable-linger ubuntu
+
+# Install daemon (creates user-level systemd service named openclaw-gateway)
+sudo -H -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 bash -c '
+export HOME=/home/ubuntu
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+openclaw daemon install || echo "Daemon install failed"
+'
+
+# Enable Telegram plugin BEFORE writing final config (plugin enable overwrites config)
+# No bot token configured yet -- see Runbook.md for Telegram setup
+sudo -H -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 bash -c '
+export HOME=/home/ubuntu
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+openclaw plugins enable telegram || echo "Telegram plugin enable failed"
+'
+
+# [8/9] Write final OpenClaw configuration (after plugin enable to avoid overwrite)
+echo "[8/9] Writing OpenClaw configuration (provider: $EFFECTIVE_PROVIDER)..."
 
 sudo -u ubuntu mkdir -p /home/ubuntu/.openclaw
 
@@ -168,8 +204,8 @@ if [ "$EFFECTIVE_PROVIDER" = "openrouter" ]; then
         "apiKey": "$OPENROUTER_API_KEY",
         "models": [
           {
-            "id": "openai/gpt-4o-mini",
-            "name": "GPT-4o Mini",
+            "id": "${openrouter_model_id}",
+            "name": "OpenRouter Model",
             "input": ["text", "image"],
             "contextWindow": 128000,
             "maxTokens": 16384
@@ -181,7 +217,7 @@ if [ "$EFFECTIVE_PROVIDER" = "openrouter" ]; then
   "agents": {
     "defaults": {
       "model": {
-        "primary": "openrouter/openai/gpt-4o-mini"
+        "primary": "openrouter/${openrouter_model_id}"
       }
     }
   }
@@ -214,8 +250,8 @@ else
             "id": "${bedrock_model_id}",
             "name": "Bedrock Model",
             "input": ["text", "image"],
-            "contextWindow": 200000,
-            "maxTokens": 8192
+            "contextWindow": ${bedrock_context_window},
+            "maxTokens": ${bedrock_max_tokens}
           }
         ]
       }
@@ -232,40 +268,18 @@ else
 JSONEOF
 fi
 
-# [7/8] Install systemd service + enable Telegram plugin
-echo "[7/8] Setting up systemd service and plugins..."
-
-# Enable systemd linger for ubuntu user (services persist without login)
-loginctl enable-linger ubuntu
-
-# Install daemon (creates user-level systemd service)
+# Enable service to persist across reboots (actual service name is openclaw-gateway)
 sudo -H -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 bash -c '
-export HOME=/home/ubuntu
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-openclaw daemon install || echo "Daemon install failed"
-'
-
-# Enable service to persist across reboots
-sudo -H -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 bash -c '
-systemctl --user enable openclaw 2>/dev/null || systemctl --user enable openclaw.service 2>/dev/null || echo "Service enable deferred"
-'
-
-# Enable Telegram plugin (no bot token configured yet -- see Runbook.md)
-sudo -H -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 bash -c '
-export HOME=/home/ubuntu
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-openclaw plugins enable telegram || echo "Telegram plugin enable failed"
+systemctl --user enable openclaw-gateway 2>/dev/null || systemctl --user enable openclaw-gateway.service 2>/dev/null || echo "Service enable deferred"
 '
 
 # Start the daemon
 sudo -H -u ubuntu XDG_RUNTIME_DIR=/run/user/1000 bash -c '
-systemctl --user start openclaw 2>/dev/null || systemctl --user start openclaw.service 2>/dev/null || echo "Service start deferred to linger"
+systemctl --user start openclaw-gateway 2>/dev/null || systemctl --user start openclaw-gateway.service 2>/dev/null || echo "Service start deferred to linger"
 '
 
-# [8/8] Verify and create access info
-echo "[8/8] Verifying installation..."
+# [9/9] Verify and create access info
+echo "[9/9] Verifying installation..."
 sleep 10
 
 # Get instance metadata via IMDSv2
@@ -311,8 +325,8 @@ echo "Setup Complete: $(date)"
 echo "=========================================="
 echo ""
 echo "Debug commands (as ubuntu user):"
-echo "  systemctl --user status openclaw"
-echo "  journalctl --user -u openclaw -f"
+echo "  systemctl --user status openclaw-gateway"
+echo "  journalctl --user -u openclaw-gateway -f"
 echo ""
 echo "View access instructions:"
 echo "  cat ~/ACCESS.txt"

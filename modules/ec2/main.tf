@@ -17,13 +17,16 @@ resource "aws_instance" "openclaw" {
     volume_size           = var.root_volume_size
     volume_type           = "gp3"
     encrypted             = true
-    delete_on_termination = false # Preserve data on instance termination
+    delete_on_termination = var.delete_ebs_on_termination
   }
 
   user_data = base64encode(templatefile("${path.module}/../../files/user_data.sh.tpl", {
     environment            = var.environment
     model_provider         = var.model_provider
     bedrock_model_id       = var.bedrock_model_id
+    bedrock_context_window = var.bedrock_context_window
+    bedrock_max_tokens     = var.bedrock_max_tokens
+    openrouter_model_id    = var.openrouter_model_id
     gateway_token_ssm_path = var.gateway_token_ssm_path
     openrouter_ssm_param   = var.openrouter_ssm_param
     region                 = var.region

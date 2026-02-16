@@ -29,6 +29,12 @@ variable "root_volume_size" {
   default     = 30
 }
 
+variable "delete_ebs_on_termination" {
+  description = "Delete root EBS volume when instance is terminated"
+  type        = bool
+  default     = true
+}
+
 variable "environment" {
   description = "Environment name"
   type        = string
@@ -43,6 +49,24 @@ variable "bedrock_model_id" {
   description = "Bedrock model ID"
   type        = string
   default     = ""
+}
+
+variable "bedrock_context_window" {
+  description = "Context window size for the Bedrock model"
+  type        = number
+  default     = 200000
+}
+
+variable "bedrock_max_tokens" {
+  description = "Maximum output tokens for the Bedrock model"
+  type        = number
+  default     = 8192
+}
+
+variable "openrouter_model_id" {
+  description = "OpenRouter model ID"
+  type        = string
+  default     = "openai/gpt-4o-mini"
 }
 
 variable "gateway_token_ssm_path" {
